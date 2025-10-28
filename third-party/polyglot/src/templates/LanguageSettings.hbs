@@ -1,0 +1,66 @@
+<form class="flexcol" autocomplete="off" onsubmit="event.preventDefault()">
+	<section class="content">
+		<div class="settings-list">
+			{{#with data.providerSelection}}
+				<div class="form-group">
+					<label>{{name}}</label>
+					<select class="form-fields polyglot-{{this.id}}" name="{{this.id}}">
+						{{selectOptions this.choices selected=this.value}}
+					</select>
+				</div>
+				<p class="notes">{{this.hint}}</p>
+			{{/with}}
+
+			<ul class="polyglot-languages-list">
+				<li class="flexrow">
+					<div>{{localize "POLYGLOT.LanguageLabel"}}</div>
+					<div>{{localize "POLYGLOT.Fonts"}}</div>
+					<div>Randomize Letters</div>
+				</li>
+				<hr />
+				{{#each languages.value as |value key|}}
+					<li class="flexrow">
+						<div data-id="{{key}}">{{value.label}}</div>
+						<div style="display: none;">
+							{{formInput
+								@root.languages.fields.label
+								value=value.label
+								name=(concat "languages." key ".label")
+							}}
+						</div>
+						<div>
+							{{formInput
+								@root.languages.fields.font
+								value=value.font
+								name=(concat "languages." key ".font")
+								classes="selectatr"
+							}}
+						</div>
+						<div>
+							{{formInput
+								@root.languages.fields.rng
+								value=value.rng
+								name=(concat "languages." key ".rng")
+								classes="selectatr"
+								localize=true
+							}}
+						</div>
+					</li>
+				{{/each}}
+			</ul>
+			<div class="polyglot-languages-warn">⚠️ If you change the provider, your language settings will be
+				overwritten.</div>
+		</div>
+	</section>
+
+	<footer class="sheet-footer flexrow">
+		<button type="submit" name="submit">
+			<i class="far fa-save"></i>
+			{{localize "SETTINGS.Save"}}
+		</button>
+		<button type="button" data-action="reset">
+			<i class="fas fa-undo"></i>
+			{{localize "SETTINGS.Reset"}}
+		</button>
+	</footer>
+</form>
