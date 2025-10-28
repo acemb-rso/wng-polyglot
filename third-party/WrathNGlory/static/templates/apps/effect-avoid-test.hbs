@@ -1,0 +1,35 @@
+<div>
+  <div class="form-group">
+    <label>{{localize "DIALOG.DN"}}</label>
+    <div class="form-fields">
+      <input name="system.transferData.avoidTest.dn" placeholder="DN" type="number" value="{{system.transferData.avoidTest.dn}}" />
+    </div>
+  </div>
+  <div class="form-group">
+    <div class="form-fields">
+      <select name="system.transferData.avoidTest.type" class="type">
+        {{selectOptions (config "testTypes") selected=system.transferData.avoidTest.type blank=""}}
+      </select>
+      {{#if (eq system.transferData.avoidTest.type "attribute")}}
+        <select name="system.transferData.avoidTest.specification" class="attribute">
+          {{selectOptions (config "attributes") selected=system.transferData.avoidTest.specification blank=""}}
+        </select>
+      {{/if}}
+      {{#if (eq system.transferData.avoidTest.type "skill")}}
+        <select name="system.transferData.avoidTest.specification" class="skill">
+          {{selectOptions (config "skills") selected=system.transferData.avoidTest.specification blank=""}}
+        </select>
+      {{/if}}
+      {{#if (eq system.transferData.avoidTest.type "resolve")}}
+        <select name="system.transferData.avoidTest.specification" class="resolve">
+          {{selectOptions (config "resolveTests") selected=system.transferData.avoidTest.specification blank=""}}
+        </select>
+      {{/if}}
+      {{#if (eq system.transferData.avoidTest.type "conviction")}}
+        <select name="system.transferData.avoidTest.specification" class="conviction">
+          {{selectOptions (config "convictionTests") selected=system.transferData.avoidTest.specification blank=""}}
+        </select>
+      {{/if}}
+    </div>
+  </div>
+</div>
