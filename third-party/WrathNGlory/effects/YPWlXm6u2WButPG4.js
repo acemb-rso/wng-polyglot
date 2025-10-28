@@ -1,0 +1,1 @@
+return !args.context.multi || !args.weapon || !args.weapon.name === "Enmitic Disintegrator Pistol";

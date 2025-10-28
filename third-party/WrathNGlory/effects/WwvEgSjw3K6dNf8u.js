@@ -1,0 +1,1 @@
+return game.messages.contents(args.context.message)?.item?.type == "psychicPower"
