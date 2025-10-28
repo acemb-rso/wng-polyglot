@@ -1,0 +1,1 @@
+return !args.context.corruption && !args.context.mutation

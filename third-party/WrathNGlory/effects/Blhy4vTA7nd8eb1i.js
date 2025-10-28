@@ -1,0 +1,1 @@
+return args.skill != "investigation" && !args.context.influence
