@@ -1,5 +1,6 @@
 {
 	"id": "wng-CombatExtender",
+	"type": "module",
 	"title": "Wrath & Glory - Combat Extender",
 	"description": "Extends combat dialogs for better organization",
 	"version": "0.1.0",
@@ -19,5 +20,29 @@
 	"languages": [],
 	"url": "This is auto replaced",
 	"manifest": "https://raw.githubusercontent.com/acemb-rso/wng-CombatExtender/main/module.json",
-	"download": "https://github.com/acemb-rso/wng-CombatExtender/archive/refs/heads/main.zip"
+	"download": "https://github.com/acemb-rso/wng-CombatExtender/archive/refs/heads/main.zip",
+	"relationships": {
+    "systems": [
+      {
+        "id": "wrath-and-glory",
+        "type": "system",
+        "compatibility": {
+          "minimum": "6",
+          "verified": "6"
+        }
+      }
+    ],
+    "requires": [
+      {
+        "id": "lib-wrapper",
+        "type": "module",
+        "manifest": "https://github.com/ruipin/fvtt-lib-wrapper/releases/latest/download/module.json",
+        "compatibility": {
+          "minimum": "1.12.0.0",
+          "verified": "1.13.4.0"
+        }
+      }
+    ]
+  },
+  "flags": {}
 }
