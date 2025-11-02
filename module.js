@@ -4,9 +4,8 @@
 	"description": "Talk to others using a language you can speak and scrambles text you can't understand, in several fantasy scripts.",
 	"authors": [
 		{
-			"name": "Matheus Clemente",
-			"discord": "mclemente#5524",
-			"ko-fi": "mclemente"
+			"name": "acemb-rso",
+			"discord": "Goldwalker"
 		}
 	],
 	"compatibility": {
