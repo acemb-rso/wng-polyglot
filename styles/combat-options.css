@@ -131,3 +131,6 @@ body.wng-theme .warhammer.roll-dialog-v2 details.combat-options[open] .combat-op
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options input:disabled + span {
   opacity: 0.45;
 }
+
+.combat-options__content.is-collapsed { display: none; }
+.combat-options__called-shot.is-hidden { display: none; }
