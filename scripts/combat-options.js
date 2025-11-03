@@ -38,10 +38,15 @@ Hooks.once("ready", () => {
     return;
   }
 
-  Hooks.on("renderWeaponDialog", (app, html) => {
+  Hooks.on("renderWeaponDialog", (app, html, data) => {
     try {
       ensureWeaponDialogPatched(app);
-      injectCombatOptions(app, html);
+      const normalizedHtml = toJQuery(html, "renderWeaponDialog");
+      if (!normalizedHtml?.length) {
+        logError("renderWeaponDialog received invalid html parameter", html);
+        return;
+      }
+      injectCombatOptions(app, normalizedHtml, data);
     }
     catch (err) {
       logError("Failed to render combat options", err);
@@ -195,7 +200,37 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
+function toJQuery(html, hookName) {
+  if (html instanceof jQuery || html?.jquery) {
+    return html;
+  }
+
+  if (html instanceof HTMLElement) {
+    return $(html);
+  }
+
+  if (Array.isArray(html)) {
+    const elements = html.filter((element) => element instanceof HTMLElement);
+    if (elements.length) {
+      return $(elements);
+    }
+  }
+
+  logError(`${hookName} received unsupported html parameter`, html);
+  return null;
+}
+
 function injectCombatOptions(app, html) {
+  if (!app || !html) {
+    logError("injectCombatOptions called with invalid arguments", { app, html });
+    return;
+  }
+
+  if (typeof html.find !== "function") {
+    logError("injectCombatOptions expected a jQuery object", html);
+    return;
+  }
+
   const attackSection = html.find(".attack");
   if (!attackSection.length) {
     return;
