@@ -307,8 +307,9 @@ function injectCombatOptions(app, html) {
 
   // Create the UI
   const details = $('<details class="combat-options"></details>');
-  if (app.context?.combatOptionsOpen) {
-    details.attr('open', 'open');
+  const shouldStartOpen = app._combatOptionsOpen ?? app.context?.combatOptionsOpen;
+  if (shouldStartOpen) {
+    details.prop('open', true);
   }
 
   details.append($(`
@@ -375,6 +376,10 @@ function injectCombatOptions(app, html) {
     attackSection.append(details);
   }
 
+  details.on('toggle.combatOptions', () => {
+    app._combatOptionsOpen = details.prop('open');
+  });
+
   // Helper: Create checkbox option
   function createCheckboxOption(app, option, inputMap, controlMap) {
     const input = inputMap.get(option.name);
@@ -396,11 +401,10 @@ function injectCombatOptions(app, html) {
 
     // Direct binding - update the actual form input
     checkbox.off('.combatOptions');
-    checkbox.on('change.combatOptions', (e) => {
-      e.stopPropagation();
+    checkbox.on('change.combatOptions', () => {
       const checked = checkbox.prop('checked');
       handleConflicts(option.name, checked);
-      app.render(false);
+      app._combatOptionsOpen = true;
     });
 
     controlMap.set(option.name, { checkbox });
@@ -436,20 +440,25 @@ function injectCombatOptions(app, html) {
       if (!active) {
         sizeSelect.val('');
         labelInput.val('');
+        sizeSelect.trigger('change');
+        labelInput.trigger('change');
       }
     };
 
     checkbox.off('.combatOptions');
-    checkbox.on('change.combatOptions', (e) => {
-      e.stopPropagation();
+    checkbox.on('change.combatOptions', () => {
       toggle(checkbox.prop('checked'));
-      app.render(false);
+      app._combatOptionsOpen = true;
     });
 
     sizeSelect.off('.combatOptions');
-    sizeSelect.on('change.combatOptions', () => app.render(false));
+    sizeSelect.on('change.combatOptions', () => {
+      app._combatOptionsOpen = true;
+    });
     labelInput.off('.combatOptions');
-    labelInput.on('change.combatOptions', () => app.render(false));
+    labelInput.on('change.combatOptions', () => {
+      app._combatOptionsOpen = true;
+    });
 
     toggle(Boolean(app.fields.calledShot?.size));
     return wrapper;
@@ -474,10 +483,9 @@ function injectCombatOptions(app, html) {
     select.val(input?.val() ?? '');
     input.detach();
     select.off('.combatOptions');
-    select.on('change.combatOptions', (e) => {
-      e.stopPropagation();
+    select.on('change.combatOptions', () => {
       input.val(select.val());
-      app.render(false);
+      app._combatOptionsOpen = true;
     });
 
     wrapper.append(span, select, input);
@@ -491,12 +499,12 @@ function injectCombatOptions(app, html) {
     if (name === 'allOutAttack') {
       const fdControl = checkboxControls.get('fullDefence');
       if (fdControl) {
-        fdControl.checkbox.prop('checked', false);
+        fdControl.checkbox.prop('checked', false).trigger('change');
       }
     } else if (name === 'fullDefence') {
       const aoaControl = checkboxControls.get('allOutAttack');
       if (aoaControl) {
-        aoaControl.checkbox.prop('checked', false);
+        aoaControl.checkbox.prop('checked', false).trigger('change');
       }
     }
   }
