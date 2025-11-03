@@ -25,29 +25,18 @@ Hooks.once("init", () => {
   }
 });
 
-Hooks.once("ready", async () => {
+Hooks.once("ready", () => {
   if (game.system.id !== "wrath-and-glory") {
     return;
   }
 
-  let weaponModule;
-  try {
-    weaponModule = await import(`systems/${game.system.id}/scripts/common/dialogs/weapon-dialog.js`);
-  }
-  catch (error) {
-    console.error("WNG Combat Extender | Failed to import WeaponDialog", error);
-    return;
-  }
-
-  const { WeaponDialog } = weaponModule ?? {};
-  if (!WeaponDialog) {
-    console.error("WNG Combat Extender | WeaponDialog class not found");
-    return;
-  }
-
-  extendWeaponDialog(WeaponDialog);
   Hooks.on("renderWeaponDialog", (app, html) => {
     try {
+      const patched = ensureWeaponDialogPatched(app);
+      if (patched) {
+        app.render(false);
+        return;
+      }
       injectCombatOptions(app, html);
     }
     catch (err) {
@@ -56,9 +45,27 @@ Hooks.once("ready", async () => {
   });
 });
 
-function extendWeaponDialog(WeaponDialog) {
-  const originalPrepareContext = WeaponDialog.prototype._prepareContext;
-  WeaponDialog.prototype._prepareContext = async function(options) {
+function ensureWeaponDialogPatched(app) {
+  const prototype = Object.getPrototypeOf(app);
+  if (!prototype || prototype === Application.prototype) {
+    return false;
+  }
+
+  const patchFlag = "__wngCombatExtenderPatched";
+  if (prototype[patchFlag]) {
+    return false;
+  }
+
+  const originalPrepareContext = prototype._prepareContext;
+  const originalDefaultFields = prototype._defaultFields;
+  const originalGetSubmission = prototype._getSubmissionData;
+
+  if (typeof originalPrepareContext !== "function" || typeof originalDefaultFields !== "function" || typeof originalGetSubmission !== "function") {
+    console.error("WNG Combat Extender | WeaponDialog prototype missing expected methods");
+    return false;
+  }
+
+  prototype._prepareContext = async function(options) {
     const context = await originalPrepareContext.call(this, options);
     context.calledShotSizes = {
       tiny: "SIZE.TINY",
@@ -80,8 +87,7 @@ function extendWeaponDialog(WeaponDialog) {
     return context;
   };
 
-  const originalDefaultFields = WeaponDialog.prototype._defaultFields;
-  WeaponDialog.prototype._defaultFields = function() {
+  prototype._defaultFields = function() {
     const defaults = originalDefaultFields.call(this) ?? {};
     const calledShotDefaults = {
       enabled: false,
@@ -105,8 +111,7 @@ function extendWeaponDialog(WeaponDialog) {
     }, defaults, { inplace: false });
   };
 
-  const originalGetSubmission = WeaponDialog.prototype._getSubmissionData;
-  WeaponDialog.prototype._getSubmissionData = function() {
+  prototype._getSubmissionData = function() {
     const data = originalGetSubmission.call(this);
     if (!data.calledShot?.enabled) {
       data.calledShot.size = "";
@@ -115,7 +120,7 @@ function extendWeaponDialog(WeaponDialog) {
     return data;
   };
 
-  WeaponDialog.prototype.computeFields = function() {
+  prototype.computeFields = function() {
     const weapon = this.weapon;
 
     if (this.fields.allOutAttack && this.fields.fullDefence) {
@@ -246,6 +251,9 @@ function extendWeaponDialog(WeaponDialog) {
       this.fields.ed.dice = baseEdDice;
     }
   };
+
+  prototype[patchFlag] = true;
+  return true;
 }
 
 function injectCombatOptions(app, html) {
