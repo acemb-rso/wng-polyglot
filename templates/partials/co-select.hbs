@@ -1,0 +1,10 @@
+<label class="combat-options__option combat-options__option--select">
+  <span>{{label}}</span>
+  <select data-co name="{{name}}">
+    {{#each options}}
+      <option value="{{this.value}}" {{#if (eq ../value this.value)}}selected{{/if}}>
+        {{this.label}}
+      </option>
+    {{/each}}
+  </select>
+</label>
