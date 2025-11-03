@@ -73,16 +73,21 @@ const SIZE_MODIFIER_OPTIONS = {
   },
 };
 
-Hooks.once("init", () => {
-  if (MODULE_BASE_PATH) {
-    const href = `${MODULE_BASE_PATH}/styles/combat-options.css`;
-    if (!document.querySelector(`link[href="${href}"]`)) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = href;
-      document.head.appendChild(link);
-    }
-  }
+Hooks.once("init", async () => {
+  // load CSS (you already do this)
+  // preload hbs
+  const base = MODULE_BASE_PATH;
+  await loadTemplates([
+    `${base}/templates/combat-options.hbs`,
+    `${base}/templates/partials/co-checkbox.hbs`,
+    `${base}/templates/partials/co-select.hbs`,
+  ]);
+
+  // helpers
+  Handlebars.registerHelper("t", (s) => String(s));                 // simple passthrough
+  Handlebars.registerHelper("eq", (a,b) => a===b);
+  Handlebars.registerHelper("not", (v)=>!v);
+  Handlebars.registerHelper("concat", (...a)=>a.slice(0,-1).join(""));
 });
 
 Hooks.once("ready", () => {
@@ -307,56 +312,103 @@ function toJQuery(html, hookName) {
   return null;
 }
 
-function injectCombatOptions(app, html) {
-  if (!app || !html || typeof html.find !== "function") {
-    logError("injectCombatOptions called with invalid arguments");
-    return;
-  }
+Hooks.on("renderWeaponDialog", async (app, html) => {
+  try {
+    // stable anchor
+    const attackSection = html.find(".attack");
+    if (!attackSection.length) return;
 
-  const attackSection = html.find(".attack");
-  if (!attackSection.length) {
-    return;
-  }
+    // build data for template
+    const ctx = {
+      open: app._combatOptionsOpen ?? false,
+      isMelee: !!app.weapon?.isMelee,
+      isRanged: !!app.weapon?.isRanged,
+      hasHeavy: !!app.weapon?.system?.traits?.has?.("heavy"),
+      fields: foundry.utils.duplicate(app.fields ?? {}),
 
-  const form = html.closest("form").length ? html.closest("form") : html;
+      labels: {
+        allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
+        fullDefence: "Full Defence (+2 Defence / –2 Dice)",
+        charge: "Charge (+1 Die, 2× Speed)",
+        grapple: "Grapple (Opposed Strength Test)",
+        fallBack: "Fall Back (Disengage safely)",
+        brace: "Brace (ignore Heavy penalty with STR)",
+        pinning: "Suppressing Fire (Pinning)",
+        cover: "Cover",
+        vision: "Vision",
+        size: "Target Size",
+        calledShot: "Called Shot",
+        calledShotSize: "Target Size",
+        calledShotLabel: "Label",
+        disarm: "Disarm (0 Damage)",
+        entangle: "Entangle",
+      },
 
-  let hiddenInputs = form.find('.combat-options__hidden-inputs');
-  if (!hiddenInputs.length) {
-    hiddenInputs = $('<div class="combat-options__hidden-inputs"></div>');
-    form.append(hiddenInputs);
-  }
+      coverOptions: [
+        { value:"",      label:"No Cover" },
+        { value:"half",  label:"Half Cover (+1 DN)" },
+        { value:"full",  label:"Full Cover (+2 DN)" }
+      ],
+      visionOptions: [
+        { value:"",         label:"Normal" },
+        { value:"lowLight", label:"Low Light (+1 DN)" },
+        { value:"darkness", label:"Darkness (+2 DN)" }
+      ],
+      sizeOptions: [
+        { value:"",            label:"Average Target (No modifier)" },
+        { value:"small",       label:"Small Target (–1 Die, +1 DN)" },
+        { value:"large",       label:"Large Target (+1 Die)" },
+        { value:"huge",        label:"Huge Target (+2 Dice)" },
+        { value:"gargantuan",  label:"Gargantuan Target (+3 Dice)" }
+      ],
+      calledShotSizes: [
+        { value:"tiny",   label: game.i18n.localize("SIZE.TINY") },
+        { value:"small",  label: game.i18n.localize("SIZE.SMALL") },
+        { value:"medium", label: game.i18n.localize("SIZE.MEDIUM") }
+      ]
+    };
 
-  // Store references to actual form inputs
-  const formInputs = new Map();
-  const checkboxControls = new Map();
-  const updateFieldValue = (path, value) => {
-    if (!app?.fields || typeof path !== "string" || !path.length) return;
-    const setter = foundry?.utils?.setProperty;
-    if (typeof setter === "function") {
-      setter(app.fields, path, value);
-      return;
-    }
+    // render + inject (idempotent)
+    const existing = attackSection.find("[data-co-root]");
+    const htmlFrag = await renderTemplate(`${MODULE_BASE_PATH}/templates/combat-options.hbs`, ctx);
+    if (existing.length) existing.replaceWith(htmlFrag);
+    else attackSection.append(htmlFrag);
 
-    if (!path.includes('.')) {
-      app.fields[path] = value;
-      return;
-    }
+    // delegated listeners (survive re-renders)
+    const root = attackSection.find("[data-co-root]");
+    // toggle summary
+    root.off(".combatOptions"); // clear stale handlers
+    root.on("click.combatOptions", ".combat-options__summary", (ev) => {
+      const content = root.find(".combat-options__content");
+      content.toggleClass("is-collapsed");
+      app._combatOptionsOpen = !content.hasClass("is-collapsed");
+    });
 
-    const segments = path.split('.');
-    let target = app.fields;
-    while (segments.length > 1) {
-      const segment = segments.shift();
-      if (!segment) continue;
-      if (typeof target[segment] !== "object" || target[segment] === null) {
-        target[segment] = {};
+    // generic input handler (checkbox/select/text)
+    root.on("change.combatOptions input.combatOptions", "[data-co]", (ev) => {
+      const el = ev.currentTarget;
+      const name = el.name;
+      let value = el.type === "checkbox" ? el.checked : el.value;
+
+      // write into dialog fields
+      foundry.utils.setProperty(app.fields, name, value);
+
+      // inter-option conflict rules
+      if (name === "allOutAttack" && value) foundry.utils.setProperty(app.fields, "fullDefence", false);
+      if (name === "fullDefence" && value) foundry.utils.setProperty(app.fields, "allOutAttack", false);
+
+      // show/hide called shot subpanel
+      if (name === "calledShot.enabled") {
+        root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
       }
-      target = target[segment];
-    }
-    const finalKey = segments.shift();
-    if (finalKey) {
-      target[finalKey] = value;
-    }
-  };
+
+      // submit without full redraw if the dialog supports it
+      if (typeof app.submit === "function") app.submit({ preventClose: true });
+    });
+  } catch (err) {
+    console.error("WNG Combat Extender | render failed", err);
+  }
+});
   const submitWithoutRender = () => {
     if (typeof app?.submit !== "function") return;
     try {
