@@ -3,7 +3,7 @@
 	"type": "module",
 	"title": "Wrath & Glory - Combat Extender",
 	"description": "Extends combat dialogs for better organization",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"authors": [
 		{
 			"name": "acemb-rso",
