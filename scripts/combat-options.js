@@ -32,7 +32,7 @@ Hooks.once("ready", async () => {
 
   let weaponModule;
   try {
-    weaponModule = await import(`systems/${game.system.id}/scripts/common/dialogs/weapon-dialog.js`);
+    weaponModule = await import(`/systems/${game.system.id}/scripts/common/dialogs/weapon-dialog.js`);
   }
   catch (error) {
     console.error("WNG Combat Extender | Failed to import WeaponDialog", error);
