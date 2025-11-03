@@ -221,26 +221,36 @@ function injectCombatOptions(app, html) {
 
   const form = html.closest("form").length ? html.closest("form") : html;
 
+  let hiddenInputs = form.find('.combat-options__hidden-inputs');
+  if (!hiddenInputs.length) {
+    hiddenInputs = $('<div class="combat-options__hidden-inputs"></div>');
+    form.append(hiddenInputs);
+  }
+
   // Store references to actual form inputs
   const formInputs = new Map();
   const checkboxControls = new Map();
 
   // Find or create actual form inputs (not hidden display inputs)
-  const findOrCreateInput = (name, type = 'checkbox', defaultValue = false) => {
-    let input = attackSection.find(`input[name="${name}"]`);
-    
-    if (!input.length) {
-      // Create the input if it doesn't exist
-      if (type === 'checkbox') {
-        input = $(`<input type="checkbox" name="${name}" />`);
-        input.prop('checked', defaultValue);
-      } else {
-        input = $(`<input type="hidden" name="${name}" />`);
-        input.val(defaultValue);
-      }
-      form.append(input);
+  const findOrCreateInput = (name, { type = "checkbox", defaultValue = false } = {}) => {
+    let input = attackSection.find(`[name="${name}"]`).first();
+
+    if (!input?.length) {
+      input = form.find(`[name="${name}"]`).first();
     }
-    
+
+    if (!input?.length) {
+      if (type === "checkbox") {
+        input = $(`<input type="checkbox" name="${name}" />`);
+        input.prop("checked", Boolean(defaultValue));
+      }
+      else {
+        input = $(`<input type="hidden" name="${name}" />`);
+        input.val(defaultValue ?? "");
+      }
+      hiddenInputs.append(input);
+    }
+
     return input;
   };
 
@@ -251,7 +261,7 @@ function injectCombatOptions(app, html) {
     aimInput = aimGroup.find('input[name="aim"]');
     aimGroup.remove();
   } else {
-    aimInput = findOrCreateInput('aim', 'checkbox', app.fields?.aim ?? false);
+    aimInput = findOrCreateInput('aim', { type: 'checkbox', defaultValue: app.fields?.aim ?? false });
   }
   formInputs.set('aim', aimInput);
 
@@ -262,7 +272,7 @@ function injectCombatOptions(app, html) {
     chargingInput = chargingGroup.find('input[name="charging"]');
     chargingGroup.remove();
   } else {
-    chargingInput = findOrCreateInput('charging', 'checkbox', app.fields?.charging ?? false);
+    chargingInput = findOrCreateInput('charging', { type: 'checkbox', defaultValue: app.fields?.charging ?? false });
   }
   formInputs.set('charging', chargingInput);
 
@@ -282,7 +292,7 @@ function injectCombatOptions(app, html) {
       calledShotSelect.append($('<option></option>').attr('value', value).text(game.i18n.localize(label)));
     }
     calledShotLabel = $('<input type="text" name="calledShot.label" placeholder="Label" />');
-    form.append(calledShotSelect, calledShotLabel);
+    hiddenInputs.append(calledShotSelect, calledShotLabel);
   }
   
   calledShotSelect.val(app.fields.calledShot?.size ?? "");
@@ -290,10 +300,10 @@ function injectCombatOptions(app, html) {
 
   // Create inputs for new options
   ['allOutAttack', 'grapple', 'fallBack', 'brace', 'pinning', 'fullDefence'].forEach(name => {
-    formInputs.set(name, findOrCreateInput(name, 'checkbox', app.fields?.[name] ?? false));
+    formInputs.set(name, findOrCreateInput(name, { type: 'checkbox', defaultValue: app.fields?.[name] ?? false }));
   });
-  
-  formInputs.set('cover', findOrCreateInput('cover', 'text', app.fields?.cover ?? ''));
+
+  formInputs.set('cover', findOrCreateInput('cover', { type: 'hidden', defaultValue: app.fields?.cover ?? '' }));
 
   // Create the UI
   const details = $('<details class="combat-options"></details>');
@@ -353,7 +363,8 @@ function injectCombatOptions(app, html) {
   const fullDefOpt = createCheckboxOption(app, { name: 'fullDefence', label: COMBAT_OPTION_LABELS.fullDefence }, formInputs, checkboxControls);
   if (fullDefOpt) generalGroup.append(fullDefOpt);
   
-  generalGroup.append(createCoverOption(app, formInputs));
+  const coverOpt = createCoverOption(app, formInputs);
+  if (coverOpt) generalGroup.append(coverOpt);
   content.append(generalGroup);
 
   // Insert into dialog
@@ -370,25 +381,29 @@ function injectCombatOptions(app, html) {
     if (!input?.length) return null;
 
     const wrapper = $('<label class="combat-options__option"></label>');
-    const checkbox = $('<input type="checkbox" />');
-    checkbox.prop('checked', Boolean(input.prop('checked')));
+    const checkbox = input;
+    checkbox.detach();
+    checkbox.addClass('combat-options__checkbox');
+    const hasField = Object.prototype.hasOwnProperty.call(app.fields ?? {}, option.name);
+    const initial = hasField ? app.fields[option.name] : checkbox.prop('checked');
+    checkbox.prop('checked', Boolean(initial));
     if (option.disabled) {
       checkbox.prop('disabled', true);
     }
-    
+
     const text = $('<span></span>').text(option.label);
     wrapper.append(checkbox, text);
 
     // Direct binding - update the actual form input
-    checkbox.on('change', (e) => {
+    checkbox.off('.combatOptions');
+    checkbox.on('change.combatOptions', (e) => {
       e.stopPropagation();
       const checked = checkbox.prop('checked');
-      input.prop('checked', checked);
       handleConflicts(option.name, checked);
       app.render(false);
     });
 
-    controlMap.set(option.name, { checkbox, input });
+    controlMap.set(option.name, { checkbox });
     return wrapper;
   }
 
@@ -424,14 +439,17 @@ function injectCombatOptions(app, html) {
       }
     };
 
-    checkbox.on('change', (e) => {
+    checkbox.off('.combatOptions');
+    checkbox.on('change.combatOptions', (e) => {
       e.stopPropagation();
       toggle(checkbox.prop('checked'));
       app.render(false);
     });
 
-    sizeSelect.on('change', () => app.render(false));
-    labelInput.on('change', () => app.render(false));
+    sizeSelect.off('.combatOptions');
+    sizeSelect.on('change.combatOptions', () => app.render(false));
+    labelInput.off('.combatOptions');
+    labelInput.on('change.combatOptions', () => app.render(false));
 
     toggle(Boolean(app.fields.calledShot?.size));
     return wrapper;
@@ -440,6 +458,7 @@ function injectCombatOptions(app, html) {
   // Helper: Create cover option
   function createCoverOption(app, inputMap) {
     const input = inputMap.get('cover');
+    if (!input?.length) return null;
     const wrapper = $('<label class="combat-options__option combat-options__option--select"></label>');
     const span = $('<span></span>').text('Cover');
     const select = $('<select></select>');
@@ -453,13 +472,15 @@ function injectCombatOptions(app, html) {
     });
     
     select.val(input?.val() ?? '');
-    select.on('change', (e) => {
+    input.detach();
+    select.off('.combatOptions');
+    select.on('change.combatOptions', (e) => {
       e.stopPropagation();
       input.val(select.val());
       app.render(false);
     });
-    
-    wrapper.append(span, select);
+
+    wrapper.append(span, select, input);
     return wrapper;
   }
 
@@ -471,13 +492,11 @@ function injectCombatOptions(app, html) {
       const fdControl = checkboxControls.get('fullDefence');
       if (fdControl) {
         fdControl.checkbox.prop('checked', false);
-        fdControl.input.prop('checked', false);
       }
     } else if (name === 'fullDefence') {
       const aoaControl = checkboxControls.get('allOutAttack');
       if (aoaControl) {
         aoaControl.checkbox.prop('checked', false);
-        aoaControl.input.prop('checked', false);
       }
     }
   }
