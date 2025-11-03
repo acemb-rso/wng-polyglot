@@ -32,7 +32,7 @@ Hooks.once("ready", async () => {
 
   let weaponModule;
   try {
-    weaponModule = await import(`/systems/${game.system.id}/scripts/common/dialogs/weapon-dialog.js`);
+    weaponModule = await loadWeaponDialogModule(game.system.id);
   }
   catch (error) {
     console.error("WNG Combat Extender | Failed to import WeaponDialog", error);
@@ -55,6 +55,30 @@ Hooks.once("ready", async () => {
     }
   });
 });
+
+async function loadWeaponDialogModule(systemId) {
+  const candidatePaths = [
+    `systems/${systemId}/scripts/common/dialogs/weapon-dialog.js`,
+    `systems/${systemId}/module/scripts/common/dialogs/weapon-dialog.js`,
+  ];
+
+  let lastError;
+  for (const relativePath of candidatePaths) {
+    try {
+      const resolvedPath = foundry.utils.getRoute(relativePath);
+      const moduleUrl = resolvedPath.startsWith("http") || resolvedPath.startsWith("/")
+        ? resolvedPath
+        : `/${resolvedPath}`;
+      return await import(moduleUrl);
+    }
+    catch (error) {
+      lastError = error;
+      console.warn(`WNG Combat Extender | Unable to import WeaponDialog from ${relativePath}`, error);
+    }
+  }
+
+  throw lastError ?? new Error("Unknown module resolution error");
+}
 
 function extendWeaponDialog(WeaponDialog) {
   const originalPrepareContext = WeaponDialog.prototype._prepareContext;
