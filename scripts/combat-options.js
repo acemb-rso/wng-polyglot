@@ -8,6 +8,7 @@ const log = (level, message, ...data) => {
 };
 
 const logError = (...args) => log("error", ...args);
+const logWarn = (...args) => log("warn", ...args);
 
 const COMBAT_OPTION_LABELS = {
   allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
@@ -79,14 +80,12 @@ function ensureWeaponDialogPatched(app) {
   prototype._prepareContext = async function(options) {
     const context = await originalPrepareContext.call(this, options);
     
-    // Add cover options to context
     context.coverOptions = {
       "": "No Cover",
       half: COMBAT_OPTION_LABELS.halfCover,
       full: COMBAT_OPTION_LABELS.fullCover,
     };
     
-    // Determine if combat options should be open
     const fields = this.fields ?? {};
     context.combatOptionsOpen = Boolean(
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
@@ -103,7 +102,6 @@ function ensureWeaponDialogPatched(app) {
   prototype._defaultFields = function() {
     const defaults = originalDefaultFields.call(this) ?? {};
     
-    // Add our new combat option fields
     return foundry.utils.mergeObject(defaults, {
       charging: false,
       allOutAttack: false,
@@ -118,22 +116,18 @@ function ensureWeaponDialogPatched(app) {
 
   // Extend computeFields to add our combat option logic
   prototype.computeFields = function() {
-    // Call original computeFields first
     originalComputeFields.call(this);
     
     const weapon = this.weapon;
     
-    // Handle conflicts between options
     if (this.fields.allOutAttack && this.fields.fullDefence) {
       this.fields.fullDefence = false;
     }
     
-    // Store base damage values for pinning attack
     const baseDamage = this.fields.damage;
     const baseEdValue = this.fields.ed.value;
     const baseEdDice = this.fields.ed.dice;
 
-    // Melee-specific options
     if (weapon.isMelee) {
       if (this.fields.allOutAttack) {
         this.fields.pool += 2;
@@ -149,7 +143,6 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    // Ranged-specific options
     if (weapon.isRanged) {
       if (this.fields.brace) {
         const heavyTrait = weapon.system.traits.has("heavy");
@@ -176,7 +169,6 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    // General options
     if (this.fields.fullDefence) {
       this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
     }
@@ -188,7 +180,6 @@ function ensureWeaponDialogPatched(app) {
       this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
     }
 
-    // Restore damage values if not pinning
     if (!this.fields.pinning) {
       this.fields.damage = baseDamage;
       this.fields.ed.value = baseEdValue;
@@ -204,30 +195,22 @@ function toJQuery(html, hookName) {
   if (html instanceof jQuery || html?.jquery) {
     return html;
   }
-
   if (html instanceof HTMLElement) {
     return $(html);
   }
-
   if (Array.isArray(html)) {
     const elements = html.filter((element) => element instanceof HTMLElement);
     if (elements.length) {
       return $(elements);
     }
   }
-
   logError(`${hookName} received unsupported html parameter`, html);
   return null;
 }
 
 function injectCombatOptions(app, html) {
-  if (!app || !html) {
-    logError("injectCombatOptions called with invalid arguments", { app, html });
-    return;
-  }
-
-  if (typeof html.find !== "function") {
-    logError("injectCombatOptions expected a jQuery object", html);
+  if (!app || !html || typeof html.find !== "function") {
+    logError("injectCombatOptions called with invalid arguments");
     return;
   }
 
@@ -237,93 +220,98 @@ function injectCombatOptions(app, html) {
   }
 
   const form = html.closest("form").length ? html.closest("form") : html;
-  const hiddenContainer = $('<div class="combat-options__hidden-inputs" style="display:none;"></div>');
-  form.append(hiddenContainer);
 
-  const optionInputs = new Map();
+  // Store references to actual form inputs
+  const formInputs = new Map();
   const checkboxControls = new Map();
 
-  // Move aim checkbox to hidden container
+  // Find or create actual form inputs (not hidden display inputs)
+  const findOrCreateInput = (name, type = 'checkbox', defaultValue = false) => {
+    let input = attackSection.find(`input[name="${name}"]`);
+    
+    if (!input.length) {
+      // Create the input if it doesn't exist
+      if (type === 'checkbox') {
+        input = $(`<input type="checkbox" name="${name}" />`);
+        input.prop('checked', defaultValue);
+      } else {
+        input = $(`<input type="hidden" name="${name}" />`);
+        input.val(defaultValue);
+      }
+      form.append(input);
+    }
+    
+    return input;
+  };
+
+  // Move aim input to our control (if it exists)
   const aimGroup = attackSection.find('input[name="aim"]').closest('.form-group');
+  let aimInput;
   if (aimGroup.length) {
-    const aimInput = aimGroup.find('input[name="aim"]').detach();
+    aimInput = aimGroup.find('input[name="aim"]');
     aimGroup.remove();
-    hiddenContainer.append(aimInput);
-    optionInputs.set('aim', aimInput);
+  } else {
+    aimInput = findOrCreateInput('aim', 'checkbox', app.fields?.aim ?? false);
   }
+  formInputs.set('aim', aimInput);
 
-  // Move charging checkbox to hidden container (if it exists)
+  // Move charging input (if it exists)
   const chargingGroup = attackSection.find('input[name="charging"]').closest('.form-group');
+  let chargingInput;
   if (chargingGroup.length) {
-    const chargingInput = chargingGroup.find('input[name="charging"]').detach();
+    chargingInput = chargingGroup.find('input[name="charging"]');
     chargingGroup.remove();
-    hiddenContainer.append(chargingInput);
-    optionInputs.set('charging', chargingInput);
+  } else {
+    chargingInput = findOrCreateInput('charging', 'checkbox', app.fields?.charging ?? false);
   }
+  formInputs.set('charging', chargingInput);
 
-  // Handle called shot - enhance existing or create new
+  // Handle called shot
   const calledShotGroup = attackSection.find('select[name="calledShot.size"]').closest('.form-group');
-  let calledShotSelect;
-  let calledShotLabel;
+  let calledShotSelect, calledShotLabel;
   
   if (calledShotGroup.length) {
-    calledShotSelect = calledShotGroup.find('select[name="calledShot.size"]').detach();
-    calledShotLabel = calledShotGroup.find('input[name="calledShot.label"]').detach();
+    calledShotSelect = calledShotGroup.find('select[name="calledShot.size"]');
+    calledShotLabel = calledShotGroup.find('input[name="calledShot.label"]');
     calledShotGroup.remove();
-  }
-  else {
+  } else {
     calledShotSelect = $('<select name="calledShot.size"></select>');
-    const calledShotSizes = app.context?.calledShotSizes ?? {
-      tiny: "SIZE.TINY",
-      small: "SIZE.SMALL",
-      medium: "SIZE.MEDIUM",
-    };
-    for (const [value, label] of Object.entries(calledShotSizes)) {
-      const option = $('<option></option>').attr('value', value).text(game.i18n.localize(label));
-      calledShotSelect.append(option);
+    calledShotSelect.append('<option value=""></option>');
+    const sizes = { tiny: "SIZE.TINY", small: "SIZE.SMALL", medium: "SIZE.MEDIUM" };
+    for (const [value, label] of Object.entries(sizes)) {
+      calledShotSelect.append($('<option></option>').attr('value', value).text(game.i18n.localize(label)));
     }
-    calledShotSelect.prepend('<option value=""></option>');
     calledShotLabel = $('<input type="text" name="calledShot.label" placeholder="Label" />');
+    form.append(calledShotSelect, calledShotLabel);
   }
   
   calledShotSelect.val(app.fields.calledShot?.size ?? "");
   calledShotLabel.val(app.fields.calledShot?.label ?? "");
 
-  // Create hidden inputs for our new options
-  const checkboxNames = [
-    'allOutAttack',
-    'grapple',
-    'fallBack',
-    'brace',
-    'pinning',
-    'fullDefence',
-  ];
+  // Create inputs for new options
+  ['allOutAttack', 'grapple', 'fallBack', 'brace', 'pinning', 'fullDefence'].forEach(name => {
+    formInputs.set(name, findOrCreateInput(name, 'checkbox', app.fields?.[name] ?? false));
+  });
+  
+  formInputs.set('cover', findOrCreateInput('cover', 'text', app.fields?.cover ?? ''));
 
-  for (const name of checkboxNames) {
-    const existingValue = Boolean(foundry.utils.getProperty(app.fields, name));
-    optionInputs.set(name, createHiddenCheckbox(name, existingValue));
-  }
-
-  optionInputs.set('cover', createHiddenText('cover', app.fields.cover ?? ''));
-
-  // Create the combat options details element
+  // Create the UI
   const details = $('<details class="combat-options"></details>');
   if (app.context?.combatOptionsOpen) {
     details.attr('open', 'open');
   }
 
-  const summary = $(`
+  details.append($(`
     <summary>
       <i class="fas fa-swords combat-options__icon"></i>
       <span>${localizeOrFallback('WNG.CombatOptions', 'Combat Options')}</span>
     </summary>
-  `);
-  details.append(summary);
+  `));
 
   const content = $('<div class="combat-options__content"></div>');
   details.append(content);
 
-  // Melee options
+  // Add melee options
   if (app.weapon?.isMelee) {
     const group = $('<div class="combat-options__group"></div>');
     group.append(`<div class="combat-options__header">${localizeOrFallback('WNG.MeleeOptions', 'Melee')}</div>`);
@@ -332,16 +320,14 @@ function injectCombatOptions(app, html) {
       { name: 'charging', label: COMBAT_OPTION_LABELS.charge },
       { name: 'grapple', label: COMBAT_OPTION_LABELS.grapple },
       { name: 'fallBack', label: COMBAT_OPTION_LABELS.fallBack },
-    ].forEach(option => {
-      const element = createCheckboxOption(app, option, optionInputs, checkboxControls);
-      if (element) {
-        group.append(element);
-      }
+    ].forEach(opt => {
+      const el = createCheckboxOption(app, opt, formInputs, checkboxControls);
+      if (el) group.append(el);
     });
     content.append(group);
   }
 
-  // Ranged options
+  // Add ranged options
   if (app.weapon?.isRanged) {
     const group = $('<div class="combat-options__group"></div>');
     group.append(`<div class="combat-options__header">${localizeOrFallback('WNG.RangedOptions', 'Ranged')}</div>`);
@@ -350,63 +336,38 @@ function injectCombatOptions(app, html) {
       { name: 'aim', label: `${game.i18n.localize('WEAPON.AIM')} (+1 Die or ignore Engaged penalty)` },
       { name: 'brace', label: COMBAT_OPTION_LABELS.brace, disabled: !hasHeavy },
       { name: 'pinning', label: COMBAT_OPTION_LABELS.pinning },
-    ].forEach(option => {
-      const element = createCheckboxOption(app, option, optionInputs, checkboxControls);
-      if (element) {
-        group.append(element);
-      }
+    ].forEach(opt => {
+      const el = createCheckboxOption(app, opt, formInputs, checkboxControls);
+      if (el) group.append(el);
     });
     content.append(group);
   }
 
-  // General options
+  // Add general options
   const generalGroup = $('<div class="combat-options__group"></div>');
   generalGroup.append(`<div class="combat-options__header">${localizeOrFallback('WNG.GeneralOptions', 'General')}</div>`);
   
-  const calledShotOption = createCalledShotOption(app, calledShotSelect, calledShotLabel);
-  if (calledShotOption) {
-    generalGroup.append(calledShotOption);
-  }
+  const calledShotOpt = createCalledShotOption(app, calledShotSelect, calledShotLabel);
+  if (calledShotOpt) generalGroup.append(calledShotOpt);
   
-  const fullDefenceOption = createCheckboxOption(app, { name: 'fullDefence', label: COMBAT_OPTION_LABELS.fullDefence }, optionInputs, checkboxControls);
-  if (fullDefenceOption) {
-    generalGroup.append(fullDefenceOption);
-  }
+  const fullDefOpt = createCheckboxOption(app, { name: 'fullDefence', label: COMBAT_OPTION_LABELS.fullDefence }, formInputs, checkboxControls);
+  if (fullDefOpt) generalGroup.append(fullDefOpt);
   
-  generalGroup.append(createCoverOption(app, optionInputs));
+  generalGroup.append(createCoverOption(app, formInputs));
   content.append(generalGroup);
 
-  // Insert the combat options into the dialog
+  // Insert into dialog
   const insertionPoint = attackSection.find('hr').first();
   if (insertionPoint.length) {
     details.insertBefore(insertionPoint);
-  }
-  else {
+  } else {
     attackSection.append(details);
   }
 
-  // Helper function to create hidden checkbox
-  function createHiddenCheckbox(name, initial) {
-    const input = $(`<input type="checkbox" name="${name}" class="combat-options__hidden-input" />`);
-    input.prop('checked', initial);
-    hiddenContainer.append(input);
-    return input;
-  }
-
-  // Helper function to create hidden text input
-  function createHiddenText(name, value) {
-    const input = $(`<input type="hidden" name="${name}" />`);
-    input.val(value);
-    hiddenContainer.append(input);
-    return input;
-  }
-
-  // Helper function to create checkbox option
+  // Helper: Create checkbox option
   function createCheckboxOption(app, option, inputMap, controlMap) {
     const input = inputMap.get(option.name);
-    if (!input?.length) {
-      return null;
-    }
+    if (!input?.length) return null;
 
     const wrapper = $('<label class="combat-options__option"></label>');
     const checkbox = $('<input type="checkbox" />');
@@ -414,47 +375,43 @@ function injectCombatOptions(app, html) {
     if (option.disabled) {
       checkbox.prop('disabled', true);
     }
+    
     const text = $('<span></span>').text(option.label);
     wrapper.append(checkbox, text);
 
-    checkbox.on('change', () => {
-      if (checkbox.data('internal')) {
-        return;
-      }
+    // Direct binding - update the actual form input
+    checkbox.on('change', (e) => {
+      e.stopPropagation();
       const checked = checkbox.prop('checked');
-      if (setCheckboxInput(input, checked)) {
-        handleConflicts(option.name, checked);
-      }
+      input.prop('checked', checked);
+      handleConflicts(option.name, checked);
       app.render(false);
     });
 
-    controlMap.set(option.name, {
-      update(value) {
-        checkbox.data('internal', true);
-        checkbox.prop('checked', value);
-        checkbox.data('internal', false);
-      }
-    });
-
+    controlMap.set(option.name, { checkbox, input });
     return wrapper;
   }
 
-  // Helper function to create called shot option
+  // Helper: Create called shot option
   function createCalledShotOption(app, sizeSelect, labelInput) {
     const wrapper = $('<div class="combat-options__option"></div>');
     const checkbox = $('<input type="checkbox" />');
     checkbox.prop('checked', Boolean(app.fields.calledShot?.size));
+    
     const label = $('<span></span>').text('Called Shot');
     wrapper.append(checkbox, label);
 
     const nested = $('<div class="combat-options__nested combat-options__called-shot"></div>');
+    
     const sizeRow = $('<label class="combat-options__note"></label>').text('Size');
     sizeSelect.addClass('combat-options__select');
     sizeRow.append(sizeSelect);
     nested.append(sizeRow);
+    
     const textRow = $('<label class="combat-options__note"></label>').text('Label');
     textRow.append(labelInput);
     nested.append(textRow);
+    
     wrapper.append(nested);
 
     const toggle = (active) => {
@@ -467,85 +424,65 @@ function injectCombatOptions(app, html) {
       }
     };
 
-    checkbox.on('change', () => {
-      const checked = checkbox.prop('checked');
-      toggle(checked);
+    checkbox.on('change', (e) => {
+      e.stopPropagation();
+      toggle(checkbox.prop('checked'));
       app.render(false);
     });
 
-    sizeSelect.on('change', () => {
-      app.render(false);
-    });
-
-    labelInput.on('change', () => {
-      app.render(false);
-    });
+    sizeSelect.on('change', () => app.render(false));
+    labelInput.on('change', () => app.render(false));
 
     toggle(Boolean(app.fields.calledShot?.size));
     return wrapper;
   }
 
-  // Helper function to create cover option
+  // Helper: Create cover option
   function createCoverOption(app, inputMap) {
     const input = inputMap.get('cover');
     const wrapper = $('<label class="combat-options__option combat-options__option--select"></label>');
     const span = $('<span></span>').text('Cover');
     const select = $('<select></select>');
+    
     [
       { value: '', label: 'No Cover' },
       { value: 'half', label: COMBAT_OPTION_LABELS.halfCover },
       { value: 'full', label: COMBAT_OPTION_LABELS.fullCover },
-    ].forEach(option => {
-      select.append($('<option></option>').attr('value', option.value).text(option.label));
+    ].forEach(opt => {
+      select.append($('<option></option>').attr('value', opt.value).text(opt.label));
     });
+    
     select.val(input?.val() ?? '');
-    select.on('change', () => {
-      input.val(select.val()).trigger('change');
+    select.on('change', (e) => {
+      e.stopPropagation();
+      input.val(select.val());
       app.render(false);
     });
+    
     wrapper.append(span, select);
     return wrapper;
   }
 
-  // Helper function to set checkbox input value
-  function setCheckboxInput(input, value) {
-    if (!input?.length || Boolean(input.prop('checked')) === Boolean(value)) {
-      return false;
-    }
-    input.prop('checked', Boolean(value)).trigger('change');
-    return true;
-  }
-
-  // Helper function to handle conflicts between options
+  // Helper: Handle conflicts
   function handleConflicts(name, checked) {
-    if (!checked) {
-      return;
-    }
+    if (!checked) return;
+    
     if (name === 'allOutAttack') {
-      syncOption('fullDefence', false);
-    }
-    else if (name === 'fullDefence') {
-      syncOption('allOutAttack', false);
-    }
-  }
-
-  // Helper function to sync option values
-  function syncOption(name, value) {
-    const input = optionInputs.get(name);
-    if (!input?.length) {
-      return;
-    }
-    const changed = setCheckboxInput(input, value);
-    const control = checkboxControls.get(name);
-    if (control) {
-      control.update(Boolean(input.prop('checked')));
-    }
-    if (changed) {
-      app.render(false);
+      const fdControl = checkboxControls.get('fullDefence');
+      if (fdControl) {
+        fdControl.checkbox.prop('checked', false);
+        fdControl.input.prop('checked', false);
+      }
+    } else if (name === 'fullDefence') {
+      const aoaControl = checkboxControls.get('allOutAttack');
+      if (aoaControl) {
+        aoaControl.checkbox.prop('checked', false);
+        aoaControl.input.prop('checked', false);
+      }
     }
   }
 
-  // Helper function for localization with fallback
+  // Helper: Localization
   function localizeOrFallback(key, fallback) {
     try {
       if (game.i18n?.has?.(key)) {
@@ -553,8 +490,7 @@ function injectCombatOptions(app, html) {
       }
       const localized = game.i18n.localize(key);
       return localized !== key ? localized : fallback;
-    }
-    catch {
+    } catch {
       return fallback;
     }
   }
