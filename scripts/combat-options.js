@@ -40,11 +40,7 @@ Hooks.once("ready", () => {
 
   Hooks.on("renderWeaponDialog", (app, html) => {
     try {
-      const patched = ensureWeaponDialogPatched(app);
-      if (patched) {
-        app.render(false);
-        return;
-      }
+      ensureWeaponDialogPatched(app);
       injectCombatOptions(app, html);
     }
     catch (err) {
@@ -92,7 +88,17 @@ function ensureWeaponDialogPatched(app) {
       fields.fallBack || fields.brace || fields.pinning || fields.fullDefence ||
       fields.cover || fields.calledShot?.enabled
     );
-    context.hasHeavyTrait = Boolean(this.weapon?.system?.traits?.has("heavy"));
+    const weaponTraits = this.weapon?.system?.traits;
+    context.hasHeavyTrait = Boolean(typeof weaponTraits?.has === "function" && weaponTraits.has("heavy"));
+
+    try {
+      if (this.tooltips && typeof this.computeFields === "function") {
+        this.computeFields();
+      }
+    }
+    catch (err) {
+      logError("Failed to compute weapon fields", err);
+    }
     return context;
   };
 
@@ -139,35 +145,106 @@ function ensureWeaponDialogPatched(app) {
   };
 
   prototype.computeFields = function() {
-    const weapon = this.weapon;
+    const weapon = this.weapon ?? {};
+    const actor = this.actor ?? {};
+    this.fields ??= {};
+
+    const baseSnapshot = this._wngCombatExtenderBaseFields;
+    if (baseSnapshot) {
+      this.fields.pool = Number(baseSnapshot.pool ?? this.fields.pool ?? 0);
+      this.fields.damage = Number(baseSnapshot.damage ?? this.fields.damage ?? 0);
+      this.fields.difficulty = Number(baseSnapshot.difficulty ?? this.fields.difficulty ?? 0);
+      if (!this.fields.ed && baseSnapshot.ed) {
+        this.fields.ed = { value: 0, dice: baseSnapshot.ed.dice ?? "" };
+      }
+      if (!this.fields.ap && baseSnapshot.ap) {
+        this.fields.ap = { value: 0, dice: baseSnapshot.ap.dice ?? "" };
+      }
+      if (this.fields.ed && baseSnapshot.ed) {
+        this.fields.ed.value = Number(baseSnapshot.ed.value ?? this.fields.ed.value ?? 0);
+        if (baseSnapshot.ed.dice !== undefined) {
+          this.fields.ed.dice = baseSnapshot.ed.dice;
+        }
+      }
+      if (this.fields.ap && baseSnapshot.ap) {
+        this.fields.ap.value = Number(baseSnapshot.ap.value ?? this.fields.ap.value ?? 0);
+      }
+    }
+
+    this.fields.calledShot ??= { enabled: false, size: "", label: "" };
+    this.fields.pool = Number(this.fields.pool ?? 0);
+    this.fields.damage = Number(this.fields.damage ?? 0);
+    this.fields.difficulty = Number(this.fields.difficulty ?? 0);
+    if (this.fields.ed) {
+      this.fields.ed.value = Number(this.fields.ed.value ?? 0);
+      this.fields.ed.dice ??= "";
+    }
+    if (this.fields.ap) {
+      this.fields.ap.value = Number(this.fields.ap.value ?? 0);
+      this.fields.ap.dice ??= "";
+    }
+
+    this._wngCombatExtenderBaseFields = {
+      pool: this.fields.pool,
+      damage: this.fields.damage,
+      difficulty: this.fields.difficulty,
+      ed: this.fields.ed ? { value: this.fields.ed.value, dice: this.fields.ed.dice } : undefined,
+      ap: this.fields.ap ? { value: this.fields.ap.value, dice: this.fields.ap.dice } : undefined,
+    };
 
     if (this.fields.allOutAttack && this.fields.fullDefence) {
       this.fields.fullDefence = false;
     }
 
-    this.tooltips.start(this);
+    const tooltips = this.tooltips;
+    const hasTooltips = Boolean(tooltips?.start && tooltips?.finish && tooltips?.add);
+    const startTooltip = (...args) => {
+      if (hasTooltips) {
+        tooltips.start(...args);
+      }
+    };
+    const finishTooltip = (...args) => {
+      if (hasTooltips) {
+        tooltips.finish(...args);
+      }
+    };
+    const addTooltip = (...args) => {
+      if (hasTooltips) {
+        tooltips.add(...args);
+      }
+    };
+
+    startTooltip(this);
     this.fields.pool += (weapon.attack?.base || 0) + (weapon.attack?.bonus || 0);
-    this.fields.damage += weapon.system.damage.base + weapon.system.damage.bonus + (weapon.system.damage.rank * this.actor.system.advances?.rank || 0);
-    this.fields.ed.value += weapon.system.damage.ed.base + weapon.system.damage.ed.bonus + (weapon.system.damage.ed.rank * this.actor.system.advances?.rank || 0);
-    this.fields.ap.value += weapon.system.damage.ap.base + weapon.system.damage.ap.bonus + (weapon.system.damage.ap.rank * this.actor.system.advances?.rank || 0);
+    this.fields.damage += (weapon.system?.damage?.base || 0) + (weapon.system?.damage?.bonus || 0) + ((weapon.system?.damage?.rank || 0) * (actor.system?.advances?.rank || 0));
+    if (this.fields.ed) {
+      this.fields.ed.value += (weapon.system?.damage?.ed?.base || 0) + (weapon.system?.damage?.ed?.bonus || 0) + ((weapon.system?.damage?.ed?.rank || 0) * (actor.system?.advances?.rank || 0));
+    }
+    if (this.fields.ap) {
+      this.fields.ap.value += (weapon.system?.damage?.ap?.base || 0) + (weapon.system?.damage?.ap?.bonus || 0) + ((weapon.system?.damage?.ap?.rank || 0) * (actor.system?.advances?.rank || 0));
+    }
 
     if (weapon.isMelee) {
-      this.fields.damage += this.actor.system.attributes[weapon.system.damage.attribute || "strength"].total;
+      const attribute = weapon.system?.damage?.attribute || "strength";
+      const attributeValue = actor.system?.attributes?.[attribute]?.total;
+      if (Number.isFinite(attributeValue)) {
+        this.fields.damage += attributeValue;
+      }
     }
-    this.tooltips.finish(this, "Weapon");
+    finishTooltip(this, "Weapon");
 
     const baseDamage = this.fields.damage;
-    const baseEdValue = this.fields.ed.value;
-    const baseEdDice = this.fields.ed.dice;
+    const baseEdValue = this.fields.ed?.value;
+    const baseEdDice = this.fields.ed?.dice;
 
     if (this.fields.aim) {
       this.fields.pool++;
       const aimLabel = `${game.i18n.localize("WEAPON.AIM")} (+1 Die or ignore Engaged penalty)`;
-      this.tooltips.add("pool", 1, aimLabel);
+      addTooltip("pool", 1, aimLabel);
     }
 
     if (this.fields.calledShot?.enabled && this.fields.calledShot.size) {
-      this.tooltips.start(this);
+      startTooltip(this);
       let value = 0;
       switch (this.fields.calledShot.size) {
         case "tiny":
@@ -181,92 +258,102 @@ function ensureWeaponDialogPatched(app) {
           break;
       }
       this.fields.difficulty += value;
-      this.fields.ed.value += value;
-      this.tooltips.finish(this, game.i18n.localize("WEAPON.CALLED_SHOT"));
+      if (this.fields.ed) {
+        this.fields.ed.value += value;
+      }
+      finishTooltip(this, game.i18n.localize("WEAPON.CALLED_SHOT"));
     }
     else if (!this.fields.calledShot?.enabled) {
       this.fields.calledShot.size = "";
     }
 
-    this.tooltips.start(this);
+    startTooltip(this);
     if (this.fields.range === "short") {
       this.fields.pool += 1;
-      this.tooltips.finish(this, "Short Range");
+      finishTooltip(this, "Short Range");
     }
     else if (this.fields.range === "long") {
       this.fields.difficulty += 2;
-      this.tooltips.finish(this, "Long Range");
+      finishTooltip(this, "Long Range");
     }
     else {
-      this.tooltips.finish();
+      finishTooltip();
     }
 
     if (weapon.isMelee) {
       if (this.fields.charging) {
         this.fields.pool++;
-        this.tooltips.add("pool", 1, COMBAT_OPTION_LABELS.charge);
+        addTooltip("pool", 1, COMBAT_OPTION_LABELS.charge);
       }
 
       if (this.fields.allOutAttack) {
         this.fields.pool += 2;
-        this.tooltips.add("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
+        addTooltip("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
       }
 
       if (this.fields.grapple) {
-        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
+        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
       }
 
       if (this.fields.fallBack) {
-        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
+        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
       }
     }
 
     if (weapon.isRanged) {
       if (this.fields.brace) {
-        const heavyTrait = weapon.system.traits.has("heavy");
+        const traits = weapon.system?.traits;
+        const heavyTrait = typeof traits?.has === "function" ? traits.has("heavy") : undefined;
         const heavyRating = Number(heavyTrait?.rating ?? heavyTrait?.value ?? 0);
-        const actorStrength = this.actor.system.attributes.strength.total;
+        const actorStrength = actor.system?.attributes?.strength?.total;
 
-        if (heavyTrait && Number.isFinite(heavyRating) && heavyRating > 0 && actorStrength < heavyRating) {
+        if (heavyTrait && Number.isFinite(heavyRating) && heavyRating > 0 && (!Number.isFinite(actorStrength) || actorStrength < heavyRating)) {
           this.fields.difficulty = Math.max(this.fields.difficulty - 2, 0);
-          this.tooltips.add("difficulty", -2, COMBAT_OPTION_LABELS.brace);
+          addTooltip("difficulty", -2, COMBAT_OPTION_LABELS.brace);
         }
         else {
-          this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.brace);
+          addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.brace);
         }
       }
 
       if (this.fields.pinning) {
         if (baseDamage) {
-          this.tooltips.add("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
+          addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
         }
         this.fields.damage = 0;
-        this.fields.ed.value = 0;
-        this.fields.ed.dice = "";
-        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
+        if (this.fields.ed) {
+          this.fields.ed.value = 0;
+          this.fields.ed.dice = "";
+        }
+        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
       }
     }
 
     if (this.fields.fullDefence) {
-      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
+      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
     }
 
     if (this.fields.cover === "half") {
-      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
+      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
     }
     else if (this.fields.cover === "full") {
-      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
+      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
     }
 
-    if (this.actor.isMob) {
-      this.fields.pool += Math.ceil(this.actor.mob / 2);
-      this.tooltips.add("pool", Math.ceil(this.actor.mob / 2), "Mob");
+    if (this.actor?.isMob) {
+      const mobBonus = Math.ceil((this.actor.mob || 0) / 2);
+      if (mobBonus > 0) {
+        this.fields.pool += mobBonus;
+        addTooltip("pool", mobBonus, "Mob");
+      }
     }
 
     if (!this.fields.pinning) {
       this.fields.damage = baseDamage;
-      this.fields.ed.value = baseEdValue;
-      this.fields.ed.dice = baseEdDice;
+      if (this.fields.ed) {
+        this.fields.ed.value = baseEdValue;
+        this.fields.ed.dice = baseEdDice;
+      }
     }
   };
 
