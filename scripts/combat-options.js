@@ -835,4 +835,3 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       return fallback;
     }
   }
-}
