@@ -123,8 +123,17 @@ function ensureWeaponDialogPatched(app) {
   prototype._getSubmissionData = function() {
     const data = originalGetSubmission.call(this);
     if (!data.calledShot?.enabled) {
-      data.calledShot.size = "";
-      data.calledShot.label = "";
+      if (data.calledShot) {
+        data.calledShot.size = "";
+        data.calledShot.label = "";
+      }
+      else {
+        data.calledShot = {
+          enabled: false,
+          size: "",
+          label: "",
+        };
+      }
     }
     return data;
   };
