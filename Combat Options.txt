@@ -38,10 +38,10 @@ Targeting opponents’ weak points often means the difference between success an
 You can make an attack a called shot by declaring a target, such as a gap in some armour, an eye, or a vulnerable joint. Your attack suffers a DN penalty dependent on the size of your target, based on the Called Shots table on the next page, or determined by the GM. If you hit, you gain Extra Damage dice equal to the DN penalty.
 
 CALLED SHOTS
-SIZE			DN Penalty	Extra Damage Dice
-Medium (arm or leg)	1		+1 ED
-Small (hand, head)		2		+2 ED
-Tiny (eye-slit, armour joint)	3	+3 ED
+SIZE			          DN Penalty	Extra Damage Dice
+Medium (arm or leg)	    +1		        +1 ED
+Small (hand, head)		  +2		        +2 ED
+Tiny (eye-slit, armour joint)	+3	    +3 ED
 
 ### Shot To Disarm
 Called shots may be used to disarm an opponent by shooting their weapon or the hand that holds it. If the attack hits, the victim must make a Strength Test against a DN equal to half the attack’s total Damage. If they fail, they drop their weapon. Using a called shot to disarm does not award additional ED, and the shot itself does not deal any Damage.  
@@ -53,11 +53,6 @@ Called shots may also bypass a target’s armour. This might include shooting at
 You can use a Full-Round Action to focus on dodging incoming attacks. Your Speed is reduced by half, and you must make an Initiative Attribute Test. Until the end of your Turn your Defence increases by 1, +1 for every Icon rolled in the Initiative Attribute Test. 
 
 You can activate Full Defence as a Reflexive Action. If you do so, you can’t perform Movement, Combat Actions or Simple Actions on your next Turn.
-
-## Hold Action
-You may choose to wait and act later in the Round. To do so, announce you are holding your Combat Action instead of taking it during your Turn. You may announce you are using your held Combat Action at any point later in the Round. 
-
-If you wish to Interrupt another character, you must succeed at an opposed Initiative Test. Failure means that the acting character takes their action first before you have the chance to intervene. If you don’t use your held Combat Action by the end of the Round it is lost. 
 
 # Combat Modifiers
 ## Engaged Targets
@@ -75,20 +70,21 @@ From the tiniest Servo-Skull to the largest Tyranid Hive Tyrant, the size of cha
 Every character and creature in Wrath & Glory has a Size Trait. Size affects how difficult a character is to hit and how stealthy it can be. Sizes range from Tiny all the way to Gargantuan. See the Size Categories table on the next page for details on how Size affects attacks and Stealth.
 
 SIZE CATEGORIES
-Size	Attack Test Modifier	Score Reduction
-Tiny	+2 Defence		+2 DN to detect
-Small	+1 Defence		+1 DN to detect
-Average	-			-
-Large	+1 bonus dice to hit	+1 bonus dice to detect
-Huge	+2 bonus dice to hit	+2 bonus dice to detect
+Size	  Attack Test Modifier	       Score Reduction
+Tiny	      +2 Defence		          +2 DN to detect
+Small	      +1 Defence		          +1 DN to detect
+Average	      -			                        -
+Large	      +1 bonus dice to hit	+1 bonus dice to detect
+Huge	      +2 bonus dice to hit	+2 bonus dice to detect
 Gargantuan	+3 bonus dice to hit	+3 bonus dice to detect
 
 ## Vision Penalties
 Darkness, photon flares, thermal smoke, and much more can impede a character’s vision. See the Vision Penalties table at the bottom of the page for specific DN modifiers based on optical conditions. Several pieces of equipment in Wargear can mitigate or overcome these penalties.
 
 OBSTRUCTION CATEGORIES
-Conditions				+DN to Ballistic Skill and Awareness Tests	+DN to Melee Attacks
-Twilight, light shadows, heavy mist		+1	+0
-Very dim light, heavy rain, fog, drifting smoke +2	+1
-Heavy fog, deployed smoke, torrential storm	+3	+2
-Total darkness, thermal smoke		+4	+3
+Conditions				                  +DN to Ballistic Skill and Awareness Tests	+DN to Melee Attacks
+Twilight, light shadows, heavy mist		                +1	                            +0
+Very dim light, heavy rain, fog, drifting smoke       +2	                            +1
+Heavy fog, deployed smoke, torrential storm	          +3	                            +2
+Total darkness, thermal smoke		                      +4	                            +3
+
