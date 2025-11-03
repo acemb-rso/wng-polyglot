@@ -230,6 +230,46 @@ function injectCombatOptions(app, html) {
   // Store references to actual form inputs
   const formInputs = new Map();
   const checkboxControls = new Map();
+  const updateFieldValue = (path, value) => {
+    if (!app?.fields || typeof path !== "string" || !path.length) return;
+    const setter = foundry?.utils?.setProperty;
+    if (typeof setter === "function") {
+      setter(app.fields, path, value);
+      return;
+    }
+
+    if (!path.includes('.')) {
+      app.fields[path] = value;
+      return;
+    }
+
+    const segments = path.split('.');
+    let target = app.fields;
+    while (segments.length > 1) {
+      const segment = segments.shift();
+      if (!segment) continue;
+      if (typeof target[segment] !== "object" || target[segment] === null) {
+        target[segment] = {};
+      }
+      target = target[segment];
+    }
+    const finalKey = segments.shift();
+    if (finalKey) {
+      target[finalKey] = value;
+    }
+  };
+  const submitWithoutRender = () => {
+    if (typeof app?.submit !== "function") return;
+    try {
+      const result = app.submit({ preventClose: true, preventRender: true });
+      if (result?.catch) {
+        result.catch(err => logWarn("Combat options submit failed", err));
+      }
+    }
+    catch (err) {
+      logWarn("Combat options submit failed", err);
+    }
+  };
 
   // Find or create actual form inputs (not hidden display inputs)
   const findOrCreateInput = (name, { type = "checkbox", defaultValue = false } = {}) => {
@@ -401,10 +441,14 @@ function injectCombatOptions(app, html) {
 
     // Direct binding - update the actual form input
     checkbox.off('.combatOptions');
-    checkbox.on('change.combatOptions', () => {
+    checkbox.on('change.combatOptions', (event) => {
+      event.stopImmediatePropagation();
+      event.stopPropagation();
       const checked = checkbox.prop('checked');
+      updateFieldValue(option.name, Boolean(checked));
       handleConflicts(option.name, checked);
       app._combatOptionsOpen = true;
+      submitWithoutRender();
     });
 
     controlMap.set(option.name, { checkbox });
@@ -440,24 +484,41 @@ function injectCombatOptions(app, html) {
       if (!active) {
         sizeSelect.val('');
         labelInput.val('');
-        sizeSelect.trigger('change');
-        labelInput.trigger('change');
+        updateFieldValue('calledShot.size', '');
+        updateFieldValue('calledShot.label', '');
+      }
+      else {
+        updateFieldValue('calledShot.size', sizeSelect.val() ?? '');
+        updateFieldValue('calledShot.label', labelInput.val() ?? '');
       }
     };
 
     checkbox.off('.combatOptions');
-    checkbox.on('change.combatOptions', () => {
-      toggle(checkbox.prop('checked'));
+    checkbox.on('change.combatOptions', (event) => {
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+      const isActive = checkbox.prop('checked');
+      toggle(isActive);
       app._combatOptionsOpen = true;
+      submitWithoutRender();
     });
 
     sizeSelect.off('.combatOptions');
-    sizeSelect.on('change.combatOptions', () => {
+    sizeSelect.on('change.combatOptions', (event) => {
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+      updateFieldValue('calledShot.size', sizeSelect.val() ?? '');
       app._combatOptionsOpen = true;
+      submitWithoutRender();
     });
     labelInput.off('.combatOptions');
-    labelInput.on('change.combatOptions', () => {
+    labelInput.on('input.combatOptions change.combatOptions', (event) => {
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+      updateFieldValue('calledShot.label', labelInput.val() ?? '');
       app._combatOptionsOpen = true;
+      if (event.type === 'input') return;
+      submitWithoutRender();
     });
 
     toggle(Boolean(app.fields.calledShot?.size));
@@ -483,9 +544,13 @@ function injectCombatOptions(app, html) {
     select.val(input?.val() ?? '');
     input.detach();
     select.off('.combatOptions');
-    select.on('change.combatOptions', () => {
+    select.on('change.combatOptions', (event) => {
+      event.stopImmediatePropagation();
+      event.stopPropagation();
       input.val(select.val());
+      updateFieldValue('cover', select.val() ?? '');
       app._combatOptionsOpen = true;
+      submitWithoutRender();
     });
 
     wrapper.append(span, select, input);
@@ -495,16 +560,18 @@ function injectCombatOptions(app, html) {
   // Helper: Handle conflicts
   function handleConflicts(name, checked) {
     if (!checked) return;
-    
+
     if (name === 'allOutAttack') {
       const fdControl = checkboxControls.get('fullDefence');
       if (fdControl) {
-        fdControl.checkbox.prop('checked', false).trigger('change');
+        fdControl.checkbox.prop('checked', false);
+        updateFieldValue('fullDefence', false);
       }
     } else if (name === 'fullDefence') {
       const aoaControl = checkboxControls.get('allOutAttack');
       if (aoaControl) {
-        aoaControl.checkbox.prop('checked', false).trigger('change');
+        aoaControl.checkbox.prop('checked', false);
+        updateFieldValue('allOutAttack', false);
       }
     }
   }
