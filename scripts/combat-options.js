@@ -1,5 +1,13 @@
 const modulePathMatch = import.meta.url.replace(/\\/g, "/").match(/^(.*\/modules\/([^/]+))\/scripts\//);
 const MODULE_BASE_PATH = modulePathMatch ? modulePathMatch[1] : "";
+const MODULE_LABEL = "WNG Combat Extender";
+
+const log = (level, message, ...data) => {
+  const logger = console[level] ?? console.log;
+  logger(`${MODULE_LABEL} | ${message}`, ...data);
+};
+
+const logError = (...args) => log("error", ...args);
 
 const COMBAT_OPTION_LABELS = {
   allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
@@ -25,40 +33,48 @@ Hooks.once("init", () => {
   }
 });
 
-Hooks.once("ready", async () => {
+Hooks.once("ready", () => {
   if (game.system.id !== "wrath-and-glory") {
     return;
   }
 
-  let weaponModule;
-  try {
-    weaponModule = await import(`systems/${game.system.id}/scripts/common/dialogs/weapon-dialog.js`);
-  }
-  catch (error) {
-    console.error("WNG Combat Extender | Failed to import WeaponDialog", error);
-    return;
-  }
-
-  const { WeaponDialog } = weaponModule ?? {};
-  if (!WeaponDialog) {
-    console.error("WNG Combat Extender | WeaponDialog class not found");
-    return;
-  }
-
-  extendWeaponDialog(WeaponDialog);
   Hooks.on("renderWeaponDialog", (app, html) => {
     try {
+      const patched = ensureWeaponDialogPatched(app);
+      if (patched) {
+        app.render(false);
+        return;
+      }
       injectCombatOptions(app, html);
     }
     catch (err) {
-      console.error("WNG Combat Extender | Failed to render combat options", err);
+      logError("Failed to render combat options", err);
     }
   });
 });
 
-function extendWeaponDialog(WeaponDialog) {
-  const originalPrepareContext = WeaponDialog.prototype._prepareContext;
-  WeaponDialog.prototype._prepareContext = async function(options) {
+const patchedWeaponDialogPrototypes = new WeakSet();
+
+function ensureWeaponDialogPatched(app) {
+  const prototype = app?.constructor?.prototype ?? Object.getPrototypeOf(app);
+  if (!prototype || prototype === Application.prototype) {
+    return false;
+  }
+
+  if (patchedWeaponDialogPrototypes.has(prototype)) {
+    return false;
+  }
+
+  const originalPrepareContext = prototype._prepareContext;
+  const originalDefaultFields = prototype._defaultFields;
+  const originalGetSubmission = prototype._getSubmissionData;
+
+  if (typeof originalPrepareContext !== "function" || typeof originalDefaultFields !== "function" || typeof originalGetSubmission !== "function") {
+    logError("WeaponDialog prototype missing expected methods");
+    return false;
+  }
+
+  prototype._prepareContext = async function(options) {
     const context = await originalPrepareContext.call(this, options);
     context.calledShotSizes = {
       tiny: "SIZE.TINY",
@@ -80,8 +96,7 @@ function extendWeaponDialog(WeaponDialog) {
     return context;
   };
 
-  const originalDefaultFields = WeaponDialog.prototype._defaultFields;
-  WeaponDialog.prototype._defaultFields = function() {
+  prototype._defaultFields = function() {
     const defaults = originalDefaultFields.call(this) ?? {};
     const calledShotDefaults = {
       enabled: false,
@@ -89,7 +104,7 @@ function extendWeaponDialog(WeaponDialog) {
       label: "",
     };
 
-    return mergeObject({
+    return foundry.utils.mergeObject({
       distance: null,
       range: null,
       aim: false,
@@ -105,8 +120,7 @@ function extendWeaponDialog(WeaponDialog) {
     }, defaults, { inplace: false });
   };
 
-  const originalGetSubmission = WeaponDialog.prototype._getSubmissionData;
-  WeaponDialog.prototype._getSubmissionData = function() {
+  prototype._getSubmissionData = function() {
     const data = originalGetSubmission.call(this);
     if (!data.calledShot?.enabled) {
       data.calledShot.size = "";
@@ -115,7 +129,7 @@ function extendWeaponDialog(WeaponDialog) {
     return data;
   };
 
-  WeaponDialog.prototype.computeFields = function() {
+  prototype.computeFields = function() {
     const weapon = this.weapon;
 
     if (this.fields.allOutAttack && this.fields.fullDefence) {
@@ -246,6 +260,9 @@ function extendWeaponDialog(WeaponDialog) {
       this.fields.ed.dice = baseEdDice;
     }
   };
+
+  patchedWeaponDialogPrototypes.add(prototype);
+  return true;
 }
 
 function injectCombatOptions(app, html) {
