@@ -20,6 +20,57 @@ const COMBAT_OPTION_LABELS = {
   fullDefence: "Full Defence (+2 Defence until next turn)",
   halfCover: "Half Cover (+1 Defence)",
   fullCover: "Full Cover (+2 Defence)",
+  pistolsInMelee: "Pistols In Melee (+2 DN to Ballistic Skill)",
+  calledShotDisarm: "Shot To Disarm (No damage)",
+};
+
+const VISION_PENALTIES = {
+  twilight: {
+    label: "Vision: Twilight, Light Shadows, Heavy Mist (+1 DN Ranged / +0 DN Melee)",
+    ranged: 1,
+    melee: 0,
+  },
+  dim: {
+    label: "Vision: Very Dim Light, Heavy Rain, Fog, Drifting Smoke (+2 DN Ranged / +1 DN Melee)",
+    ranged: 2,
+    melee: 1,
+  },
+  heavy: {
+    label: "Vision: Heavy Fog, Deployed Smoke, Torrential Storm (+3 DN Ranged / +2 DN Melee)",
+    ranged: 3,
+    melee: 2,
+  },
+  darkness: {
+    label: "Vision: Total Darkness, Thermal Smoke (+4 DN Ranged / +3 DN Melee)",
+    ranged: 4,
+    melee: 3,
+  },
+};
+
+const SIZE_MODIFIER_OPTIONS = {
+  tiny: {
+    label: "Tiny Target (+2 DN)",
+    difficulty: 2,
+  },
+  small: {
+    label: "Small Target (+1 DN)",
+    difficulty: 1,
+  },
+  average: {
+    label: "Average Target (No modifier)",
+  },
+  large: {
+    label: "Large Target (+1 Die)",
+    pool: 1,
+  },
+  huge: {
+    label: "Huge Target (+2 Dice)",
+    pool: 2,
+  },
+  gargantuan: {
+    label: "Gargantuan Target (+3 Dice)",
+    pool: 3,
+  },
 };
 
 Hooks.once("init", () => {
@@ -90,7 +141,8 @@ function ensureWeaponDialogPatched(app) {
     context.combatOptionsOpen = Boolean(
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
       fields.fallBack || fields.brace || fields.pinning || fields.fullDefence ||
-      fields.cover || fields.calledShot?.size
+      fields.cover || fields.pistolsInMelee || fields.sizeModifier || fields.visionPenalty ||
+      fields.calledShot?.size || fields.calledShot?.disarm
     );
     
     context.hasHeavyTrait = Boolean(this.weapon?.system?.traits?.has("heavy"));
@@ -111,6 +163,12 @@ function ensureWeaponDialogPatched(app) {
       pinning: false,
       fullDefence: false,
       cover: "",
+      pistolsInMelee: false,
+      sizeModifier: "",
+      visionPenalty: "",
+      calledShot: {
+        disarm: false,
+      },
     }, { inplace: false });
   };
 
@@ -127,6 +185,7 @@ function ensureWeaponDialogPatched(app) {
     const baseDamage = this.fields.damage;
     const baseEdValue = this.fields.ed.value;
     const baseEdDice = this.fields.ed.dice;
+    let damageSuppressed = false;
 
     if (weapon.isMelee) {
       if (this.fields.allOutAttack) {
@@ -166,11 +225,51 @@ function ensureWeaponDialogPatched(app) {
         this.fields.ed.value = 0;
         this.fields.ed.dice = "";
         this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
+        damageSuppressed = true;
+      }
+
+      if (this.fields.pistolsInMelee && weapon.system?.traits?.has?.("pistol")) {
+        this.fields.difficulty += 2;
+        this.tooltips.add("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
       }
     }
 
     if (this.fields.fullDefence) {
       this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
+    }
+
+    const visionKey = this.fields.visionPenalty;
+    const visionPenalty = VISION_PENALTIES[visionKey];
+    if (visionPenalty) {
+      const penalty = weapon.isMelee ? visionPenalty.melee : visionPenalty.ranged;
+      if (penalty > 0) {
+        this.fields.difficulty += penalty;
+      }
+      this.tooltips.add("difficulty", penalty ?? 0, visionPenalty.label);
+    }
+
+    const sizeKey = this.fields.sizeModifier;
+    const sizeModifier = SIZE_MODIFIER_OPTIONS[sizeKey];
+    if (sizeModifier) {
+      if (sizeModifier.pool) {
+        this.fields.pool += sizeModifier.pool;
+        this.tooltips.add("pool", sizeModifier.pool, sizeModifier.label);
+      }
+      if (sizeModifier.difficulty) {
+        this.fields.difficulty += sizeModifier.difficulty;
+        this.tooltips.add("difficulty", sizeModifier.difficulty, sizeModifier.label);
+      }
+    }
+
+    if (this.fields.calledShot?.disarm) {
+      if (baseDamage) {
+        this.tooltips.add("damage", -baseDamage, COMBAT_OPTION_LABELS.calledShotDisarm);
+      }
+      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
+      this.fields.damage = 0;
+      this.fields.ed.value = 0;
+      this.fields.ed.dice = "";
+      damageSuppressed = true;
     }
 
     if (this.fields.cover === "half") {
@@ -180,7 +279,7 @@ function ensureWeaponDialogPatched(app) {
       this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
     }
 
-    if (!this.fields.pinning) {
+    if (!damageSuppressed) {
       this.fields.damage = baseDamage;
       this.fields.ed.value = baseEdValue;
       this.fields.ed.dice = baseEdDice;
@@ -339,11 +438,14 @@ function injectCombatOptions(app, html) {
   calledShotLabel.val(app.fields.calledShot?.label ?? "");
 
   // Create inputs for new options
-  ['allOutAttack', 'grapple', 'fallBack', 'brace', 'pinning', 'fullDefence'].forEach(name => {
+  ['allOutAttack', 'grapple', 'fallBack', 'brace', 'pinning', 'fullDefence', 'pistolsInMelee'].forEach(name => {
     formInputs.set(name, findOrCreateInput(name, { type: 'checkbox', defaultValue: app.fields?.[name] ?? false }));
   });
 
   formInputs.set('cover', findOrCreateInput('cover', { type: 'hidden', defaultValue: app.fields?.cover ?? '' }));
+  formInputs.set('visionPenalty', findOrCreateInput('visionPenalty', { type: 'hidden', defaultValue: app.fields?.visionPenalty ?? '' }));
+  formInputs.set('sizeModifier', findOrCreateInput('sizeModifier', { type: 'hidden', defaultValue: app.fields?.sizeModifier ?? '' }));
+  formInputs.set('calledShot.disarm', findOrCreateInput('calledShot.disarm', { type: 'checkbox', defaultValue: app.fields?.calledShot?.disarm ?? false }));
 
   // Create the UI
   const details = $('<details class="combat-options"></details>');
@@ -398,12 +500,37 @@ function injectCombatOptions(app, html) {
   const generalGroup = $('<div class="combat-options__group"></div>');
   generalGroup.append(`<div class="combat-options__header">${localizeOrFallback('WNG.GeneralOptions', 'General')}</div>`);
   
-  const calledShotOpt = createCalledShotOption(app, calledShotSelect, calledShotLabel);
+  const calledShotOpt = createCalledShotOption(app, calledShotSelect, calledShotLabel, formInputs.get('calledShot.disarm'));
   if (calledShotOpt) generalGroup.append(calledShotOpt);
-  
+
   const fullDefOpt = createCheckboxOption(app, { name: 'fullDefence', label: COMBAT_OPTION_LABELS.fullDefence }, formInputs, checkboxControls);
   if (fullDefOpt) generalGroup.append(fullDefOpt);
-  
+
+  if (app.weapon?.isRanged && app.weapon?.system?.traits?.has?.('pistol')) {
+    const pistolsOpt = createCheckboxOption(app, { name: 'pistolsInMelee', label: COMBAT_OPTION_LABELS.pistolsInMelee }, formInputs, checkboxControls);
+    if (pistolsOpt) generalGroup.append(pistolsOpt);
+  }
+
+  const visionOpt = createSelectOption({
+    name: 'visionPenalty',
+    label: 'Vision Penalty',
+    options: [
+      { value: '', label: 'No Vision Penalty' },
+      ...Object.entries(VISION_PENALTIES).map(([value, data]) => ({ value, label: data.label })),
+    ],
+  });
+  if (visionOpt) generalGroup.append(visionOpt);
+
+  const sizeOpt = createSelectOption({
+    name: 'sizeModifier',
+    label: 'Target Size Modifier',
+    options: [
+      { value: '', label: 'Use Target Size' },
+      ...Object.entries(SIZE_MODIFIER_OPTIONS).map(([value, data]) => ({ value, label: data.label })),
+    ],
+  });
+  if (sizeOpt) generalGroup.append(sizeOpt);
+
   const coverOpt = createCoverOption(app, formInputs);
   if (coverOpt) generalGroup.append(coverOpt);
   content.append(generalGroup);
@@ -456,11 +583,12 @@ function injectCombatOptions(app, html) {
   }
 
   // Helper: Create called shot option
-  function createCalledShotOption(app, sizeSelect, labelInput) {
+  function createCalledShotOption(app, sizeSelect, labelInput, disarmInput) {
     const wrapper = $('<div class="combat-options__option"></div>');
     const checkbox = $('<input type="checkbox" />');
-    checkbox.prop('checked', Boolean(app.fields.calledShot?.size));
-    
+    const isActive = Boolean(app.fields.calledShot?.size || app.fields.calledShot?.disarm);
+    checkbox.prop('checked', isActive);
+
     const label = $('<span></span>').text('Called Shot');
     wrapper.append(checkbox, label);
 
@@ -474,22 +602,43 @@ function injectCombatOptions(app, html) {
     const textRow = $('<label class="combat-options__note"></label>').text('Label');
     textRow.append(labelInput);
     nested.append(textRow);
-    
+
+    let disarmCheckbox = null;
+    if (disarmInput?.length) {
+      disarmCheckbox = disarmInput;
+      disarmCheckbox.detach();
+      disarmCheckbox.addClass('combat-options__checkbox');
+      disarmCheckbox.prop('checked', Boolean(app.fields.calledShot?.disarm));
+      const disarmRow = $('<label class="combat-options__note combat-options__note--checkbox"></label>');
+      disarmRow.append(disarmCheckbox, $('<span></span>').text(COMBAT_OPTION_LABELS.calledShotDisarm));
+      nested.append(disarmRow);
+    }
+
     wrapper.append(nested);
 
     const toggle = (active) => {
       nested.toggle(active);
       sizeSelect.prop('disabled', !active);
       labelInput.prop('disabled', !active);
+      if (disarmCheckbox) {
+        disarmCheckbox.prop('disabled', !active);
+      }
       if (!active) {
         sizeSelect.val('');
         labelInput.val('');
         updateFieldValue('calledShot.size', '');
         updateFieldValue('calledShot.label', '');
+        if (disarmCheckbox) {
+          disarmCheckbox.prop('checked', false);
+          updateFieldValue('calledShot.disarm', false);
+        }
       }
       else {
         updateFieldValue('calledShot.size', sizeSelect.val() ?? '');
         updateFieldValue('calledShot.label', labelInput.val() ?? '');
+        if (disarmCheckbox) {
+          updateFieldValue('calledShot.disarm', Boolean(disarmCheckbox.prop('checked')));
+        }
       }
     };
 
@@ -521,7 +670,19 @@ function injectCombatOptions(app, html) {
       submitWithoutRender();
     });
 
-    toggle(Boolean(app.fields.calledShot?.size));
+    if (disarmCheckbox) {
+      disarmCheckbox.off('.combatOptions');
+      disarmCheckbox.on('change.combatOptions', (event) => {
+        event.stopImmediatePropagation();
+        event.stopPropagation();
+        const checked = Boolean(disarmCheckbox.prop('checked'));
+        updateFieldValue('calledShot.disarm', checked);
+        app._combatOptionsOpen = true;
+        submitWithoutRender();
+      });
+    }
+
+    toggle(isActive);
     return wrapper;
   }
 
@@ -549,6 +710,40 @@ function injectCombatOptions(app, html) {
       event.stopPropagation();
       input.val(select.val());
       updateFieldValue('cover', select.val() ?? '');
+      app._combatOptionsOpen = true;
+      submitWithoutRender();
+    });
+
+    wrapper.append(span, select, input);
+    return wrapper;
+  }
+
+  // Helper: Create generic select option
+  function createSelectOption({ name, label, options }) {
+    const input = formInputs.get(name);
+    if (!input?.length) return null;
+
+    const wrapper = $('<label class="combat-options__option combat-options__option--select"></label>');
+    const span = $('<span></span>').text(label);
+    const select = $('<select></select>').addClass('combat-options__select');
+
+    for (const option of options) {
+      if (!option) continue;
+      const optionEl = $('<option></option>').attr('value', option.value ?? '').text(option.label ?? '');
+      select.append(optionEl);
+    }
+
+    const currentValue = input.val() ?? '';
+    select.val(currentValue);
+    input.val(currentValue);
+    input.detach();
+
+    select.off('.combatOptions');
+    select.on('change.combatOptions', (event) => {
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+      input.val(select.val());
+      updateFieldValue(name, select.val() ?? '');
       app._combatOptionsOpen = true;
       submitWithoutRender();
     });

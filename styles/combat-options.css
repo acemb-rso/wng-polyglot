@@ -65,6 +65,16 @@
   font-size: 0.75rem;
 }
 
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__note--checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__note--checkbox input[type="checkbox"] {
+  margin-top: 0;
+}
+
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__nested {
   display: grid;
   gap: 0.25rem;
