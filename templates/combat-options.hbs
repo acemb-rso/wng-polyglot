@@ -1,9 +1,9 @@
-<section class="combat-options" data-co-root>
+<details class="combat-options" data-co-root {{#if open}}open{{/if}}>
   <summary class="combat-options__summary">
     <i class="fas fa-crosshairs"></i> {{localize "WNG.CombatOptions"}}
   </summary>
 
-  <div class="combat-options__content {{#unless open}}is-collapsed{{/unless}}">
+  <div class="combat-options__content">
     {{#if isMelee}}
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.MeleeOptions"}}</div>
@@ -27,9 +27,9 @@
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.GeneralOptions"}}</div>
 
-      {{> co-select name="cover" label=(t labels.cover) value=fields.cover options=coverOptions}}
-      {{> co-select name="vision" label=(t labels.vision) value=fields.vision options=visionOptions}}
-      {{> co-select name="size"   label=(t labels.size)   value=fields.size   options=sizeOptions}}
+      {{> co-select name="cover"        label=(t labels.cover) value=fields.cover options=coverOptions}}
+      {{> co-select name="visionPenalty" label=(t labels.vision) value=fields.visionPenalty options=visionOptions}}
+      {{> co-select name="sizeModifier"  label=(t labels.size)   value=fields.sizeModifier options=sizeOptions}}
 
       <div class="combat-options__option">
         {{> co-checkbox name="calledShot.enabled" label=(t labels.calledShot) disabled=false checked=fields.calledShot.enabled}}
@@ -45,4 +45,4 @@
       </div>
     </div>
   </div>
-</section>
+</details>

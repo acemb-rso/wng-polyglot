@@ -92,7 +92,7 @@ function ensureWeaponDialogPatched(app) {
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
       fields.fallBack || fields.brace || fields.pinning || fields.fullDefence ||
       fields.cover || fields.pistolsInMelee || fields.sizeModifier || fields.visionPenalty ||
-      fields.calledShot?.size || fields.calledShot?.disarm
+      fields.calledShot?.enabled || fields.calledShot?.size || fields.calledShot?.disarm
     );
 
     context.hasHeavyTrait = Boolean(this.weapon?.system?.traits?.has?.("heavy"));
@@ -115,9 +115,11 @@ function ensureWeaponDialogPatched(app) {
       sizeModifier: "",
       visionPenalty: "",
       calledShot: {
+        enabled: false,
         disarm: false,
         size: "",
-        label: ""
+        label: "",
+        entangle: false
       }
     }, { inplace: false });
   };
@@ -301,11 +303,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     const root = attackSection.find("[data-co-root]");
     root.off(".combatOptions");
 
-    // Collapse toggle
-    root.on("click.combatOptions", ".combat-options__summary", () => {
-      const content = root.find(".combat-options__content");
-      content.toggleClass("is-collapsed");
-      app._combatOptionsOpen = !content.hasClass("is-collapsed");
+    // Track collapse state
+    root.on("toggle.combatOptions", () => {
+      app._combatOptionsOpen = root.prop("open");
     });
 
     // Generic input handler
