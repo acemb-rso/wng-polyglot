@@ -1,0 +1,48 @@
+<section class="combat-options" data-co-root>
+  <summary class="combat-options__summary">
+    <i class="fas fa-crosshairs"></i> {{localize "WNG.CombatOptions"}}
+  </summary>
+
+  <div class="combat-options__content {{#unless open}}is-collapsed{{/unless}}">
+    {{#if isMelee}}
+    <div class="combat-options__group">
+      <div class="combat-options__header">{{localize "WNG.MeleeOptions"}}</div>
+      {{> co-checkbox name="allOutAttack" label=(t labels.allOutAttack) disabled=false checked=fields.allOutAttack}}
+      {{> co-checkbox name="fullDefence"  label=(t labels.fullDefence)  disabled=false checked=fields.fullDefence}}
+      {{> co-checkbox name="charging"     label=(t labels.charge)       disabled=false checked=fields.charging}}
+      {{> co-checkbox name="grapple"      label=(t labels.grapple)      disabled=false checked=fields.grapple}}
+      {{> co-checkbox name="fallBack"     label=(t labels.fallBack)     disabled=false checked=fields.fallBack}}
+    </div>
+    {{/if}}
+
+    {{#if isRanged}}
+    <div class="combat-options__group">
+      <div class="combat-options__header">{{localize "WNG.RangedOptions"}}</div>
+      {{> co-checkbox name="aim"    label=(concat (localize "WEAPON.AIM") " (+1 Die or ignore Engaged)") disabled=false checked=fields.aim}}
+      {{> co-checkbox name="brace"  label=(t labels.brace)  disabled=(not hasHeavy) checked=fields.brace}}
+      {{> co-checkbox name="pinning" label=(t labels.pinning) disabled=false checked=fields.pinning}}
+    </div>
+    {{/if}}
+
+    <div class="combat-options__group">
+      <div class="combat-options__header">{{localize "WNG.GeneralOptions"}}</div>
+
+      {{> co-select name="cover" label=(t labels.cover) value=fields.cover options=coverOptions}}
+      {{> co-select name="vision" label=(t labels.vision) value=fields.vision options=visionOptions}}
+      {{> co-select name="size"   label=(t labels.size)   value=fields.size   options=sizeOptions}}
+
+      <div class="combat-options__option">
+        {{> co-checkbox name="calledShot.enabled" label=(t labels.calledShot) disabled=false checked=fields.calledShot.enabled}}
+        <div class="combat-options__called-shot {{#unless fields.calledShot.enabled}}is-hidden{{/unless}}">
+          {{> co-select name="calledShot.size"  label=(t labels.calledShotSize)  value=fields.calledShot.size options=calledShotSizes}}
+          <label class="combat-options__option">
+            <span>{{t labels.calledShotLabel}}</span>
+            <input data-co name="calledShot.label" type="text" value="{{fields.calledShot.label}}" />
+          </label>
+          {{> co-checkbox name="calledShot.disarm"  label=(t labels.disarm)  disabled=false checked=fields.calledShot.disarm}}
+          {{> co-checkbox name="calledShot.entangle" label=(t labels.entangle) disabled=false checked=fields.calledShot.entangle}}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
