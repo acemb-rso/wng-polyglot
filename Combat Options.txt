@@ -1,0 +1,94 @@
+# Melee Attack Options
+## All-Out Attack
+Embrace ultra-violence, throw caution to the wind, and put all of your effort into aggression. When making an All-Out Attack, you gain +2 bonus dice to your melee attack dice pool, but you also suffer −2 to your Defence until the start of your next Turn. 
+
+You can’t take a Multi-Action if you All-Out Attack. You can Multi-Attack as part of an All-Out Attack; all of your attacks gain the same bonus. 
+
+## Charge
+You can Charge a target as a Full-Round Action. When you Charge, you move up to double your Speed and make a melee attack Test with +1 bonus dice. You must move at least 4 metres to Charge. 
+
+## Fall Back
+You can use your Combat Action to fall back from close combat with any number of Threats. You may then use your Movement without suffering Reflexive Attacks from Engaged Threats. Your Movement must take you at least half your Speed in metres away from the enemy, or as far as possible if this is impossible due to the environment.
+
+## Grapple
+You can use your Combat Action to try to grapple a target you are Engaged with. Make an Opposed Strength Test with the target. If you win, you grapple the target. 
+
+Once grappled, a character is Restrained and may only use one-handed weapons. To break free from a grapple, a character must succeed an Opposed Strength Test using a Combat Action. 
+
+You may attempt to grapple multiple targets using a Multi-Attack, but you must be Engaged with all targets and you can’t grapple more targets than you have arms.
+
+Size plays an important role in grappling. A target gains +2 bonus dice to the Opposed Strength Test for every size category it is larger than you. 
+
+# Ranged Attack Options
+## Aim
+The Aim option allows you to sacrifice your Movement to focus on aiming a weapon. If you Aim, you cannot make a Movement but gain +1 bonus die to ranged attack Tests you make this Turn. You may also use Aim to ignore the penalty for firing at a target Engaged in melee instead of gaining bonus dice.
+
+## Brace
+You can Brace for firing a weapon with the Heavy trait instead of making a Movement. You must have a suitable surface to Brace against, a tripod, or another means of stabilising your weapon. If you Brace, you negate the Heavy weapon trait.
+
+## Pinning Attack
+A Pinning Attack allows you to use suppressive fire to pin an enemy behind cover. If you have a ranged weapon with Salvo 1 or more, you can make a Pinning Attack as a Combat Action. A Pinning Attack deals no damage, and you must Reload to fire your weapon again after you make a Pinning Attack. 
+
+The DN of a Pinning Attack is equal to the target’s Resolve. If you succeed, the target is Pinned until the start of your next turn. You can Shift Icons to add additional targets on a 1-for-1 basis as long as they are within range and the Icons in your pool exceed the highest Resolve of all of your targets.  
+
+# Attack Options
+## Called Shot
+Targeting opponents’ weak points often means the difference between success and failure. Firing at a heavily-armoured opponent is often futile, unless you hit the vulnerable joints. Such precise attacks are often very difficult, however.
+
+You can make an attack a called shot by declaring a target, such as a gap in some armour, an eye, or a vulnerable joint. Your attack suffers a DN penalty dependent on the size of your target, based on the Called Shots table on the next page, or determined by the GM. If you hit, you gain Extra Damage dice equal to the DN penalty.
+
+CALLED SHOTS
+SIZE			DN Penalty	Extra Damage Dice
+Medium (arm or leg)	1		+1 ED
+Small (hand, head)		2		+2 ED
+Tiny (eye-slit, armour joint)	3	+3 ED
+
+### Shot To Disarm
+Called shots may be used to disarm an opponent by shooting their weapon or the hand that holds it. If the attack hits, the victim must make a Strength Test against a DN equal to half the attack’s total Damage. If they fail, they drop their weapon. Using a called shot to disarm does not award additional ED, and the shot itself does not deal any Damage.  
+
+### Shot To Bypass Armour
+Called shots may also bypass a target’s armour. This might include shooting at a target’s head who is not wearing a helmet or targeting an area of weaker armour. The GM determines how much armour you bypass when using this called shot. 
+
+## Full Defence
+You can use a Full-Round Action to focus on dodging incoming attacks. Your Speed is reduced by half, and you must make an Initiative Attribute Test. Until the end of your Turn your Defence increases by 1, +1 for every Icon rolled in the Initiative Attribute Test. 
+
+You can activate Full Defence as a Reflexive Action. If you do so, you can’t perform Movement, Combat Actions or Simple Actions on your next Turn.
+
+## Hold Action
+You may choose to wait and act later in the Round. To do so, announce you are holding your Combat Action instead of taking it during your Turn. You may announce you are using your held Combat Action at any point later in the Round. 
+
+If you wish to Interrupt another character, you must succeed at an opposed Initiative Test. Failure means that the acting character takes their action first before you have the chance to intervene. If you don’t use your held Combat Action by the end of the Round it is lost. 
+
+# Combat Modifiers
+## Engaged Targets
+Combatants who are within their opponent’s melee range (2 meters unless for a normal medium character) are considered to be Engaged in close combat.  If you are Engaged in close combat, you can only attack targets you are Engaged with.
+
+## Pistols In Melee
+You can fire a weapon with the Pistol Trait when Engaged in close combat. Any Ballistic Skill (A) Tests you make while you are Engaged suffer a +2 DN penalty. You can’t Aim and don’t gain a bonus for being in Short Range, but you can use other ranged combat options and weapon traits, such as Rapid Fire.
+
+## Cover
+Cover represents the protection gained from seeking shelter from incoming fire. Characters concealed from their attacker gain a bonus to Defence. If less than half of your character is concealed, they receive +1 Defence. If half or more of your character is concealed, the bonus increases to +2 Defence.
+
+## Size Categories
+From the tiniest Servo-Skull to the largest Tyranid Hive Tyrant, the size of characters can vary greatly in the 41st Millennium, and this can make a big difference during combat. Larger creatures are easier to shoot, whereas small and nimble beings are more difficult to hit and detect.
+
+Every character and creature in Wrath & Glory has a Size Trait. Size affects how difficult a character is to hit and how stealthy it can be. Sizes range from Tiny all the way to Gargantuan. See the Size Categories table on the next page for details on how Size affects attacks and Stealth.
+
+SIZE CATEGORIES
+Size	Attack Test Modifier	Score Reduction
+Tiny	+2 Defence		+2 DN to detect
+Small	+1 Defence		+1 DN to detect
+Average	-			-
+Large	+1 bonus dice to hit	+1 bonus dice to detect
+Huge	+2 bonus dice to hit	+2 bonus dice to detect
+Gargantuan	+3 bonus dice to hit	+3 bonus dice to detect
+
+## Vision Penalties
+Darkness, photon flares, thermal smoke, and much more can impede a character’s vision. See the Vision Penalties table at the bottom of the page for specific DN modifiers based on optical conditions. Several pieces of equipment in Wargear can mitigate or overcome these penalties.
+
+OBSTRUCTION CATEGORIES
+Conditions				+DN to Ballistic Skill and Awareness Tests	+DN to Melee Attacks
+Twilight, light shadows, heavy mist		+1	+0
+Very dim light, heavy rain, fog, drifting smoke +2	+1
+Heavy fog, deployed smoke, torrential storm	+3	+2
+Total darkness, thermal smoke		+4	+3
