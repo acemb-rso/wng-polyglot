@@ -63,57 +63,43 @@ function ensureWeaponDialogPatched(app) {
 
   const originalPrepareContext = prototype._prepareContext;
   const originalDefaultFields = prototype._defaultFields;
-  const originalGetSubmission = prototype._getSubmissionData;
+  const originalComputeFields = prototype.computeFields;
 
-  if (typeof originalPrepareContext !== "function" || typeof originalDefaultFields !== "function" || typeof originalGetSubmission !== "function") {
+  if (typeof originalPrepareContext !== "function" || typeof originalDefaultFields !== "function" || typeof originalComputeFields !== "function") {
     logError("WeaponDialog prototype missing expected methods");
     return false;
   }
 
+  // Patch _prepareContext to add our custom context
   prototype._prepareContext = async function(options) {
     const context = await originalPrepareContext.call(this, options);
-    context.calledShotSizes = {
-      tiny: "SIZE.TINY",
-      small: "SIZE.SMALL",
-      medium: "SIZE.MEDIUM",
-    };
+    
+    // Add cover options to context
     context.coverOptions = {
       "": "No Cover",
       half: COMBAT_OPTION_LABELS.halfCover,
       full: COMBAT_OPTION_LABELS.fullCover,
     };
+    
+    // Determine if combat options should be open
     const fields = this.fields ?? {};
     context.combatOptionsOpen = Boolean(
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
       fields.fallBack || fields.brace || fields.pinning || fields.fullDefence ||
-      fields.cover || fields.calledShot?.enabled
+      fields.cover || fields.calledShot?.size
     );
-    const weaponTraits = this.weapon?.system?.traits;
-    context.hasHeavyTrait = Boolean(typeof weaponTraits?.has === "function" && weaponTraits.has("heavy"));
-
-    try {
-      if (this.tooltips && typeof this.computeFields === "function") {
-        this.computeFields();
-      }
-    }
-    catch (err) {
-      logError("Failed to compute weapon fields", err);
-    }
+    
+    context.hasHeavyTrait = Boolean(this.weapon?.system?.traits?.has("heavy"));
+    
     return context;
   };
 
+  // Patch _defaultFields to add our new fields
   prototype._defaultFields = function() {
     const defaults = originalDefaultFields.call(this) ?? {};
-    const calledShotDefaults = {
-      enabled: false,
-      size: "",
-      label: "",
-    };
-
-    return foundry.utils.mergeObject({
-      distance: null,
-      range: null,
-      aim: false,
+    
+    // Add our new combat option fields
+    return foundry.utils.mergeObject(defaults, {
       charging: false,
       allOutAttack: false,
       grapple: false,
@@ -122,238 +108,86 @@ function ensureWeaponDialogPatched(app) {
       pinning: false,
       fullDefence: false,
       cover: "",
-      calledShot: calledShotDefaults,
-    }, defaults, { inplace: false });
+    }, { inplace: false });
   };
 
-  prototype._getSubmissionData = function() {
-    const data = originalGetSubmission.call(this);
-    if (!data.calledShot?.enabled) {
-      if (data.calledShot) {
-        data.calledShot.size = "";
-        data.calledShot.label = "";
-      }
-      else {
-        data.calledShot = {
-          enabled: false,
-          size: "",
-          label: "",
-        };
-      }
-    }
-    return data;
-  };
-
+  // Extend computeFields to add our combat option logic
   prototype.computeFields = function() {
-    const weapon = this.weapon ?? {};
-    const actor = this.actor ?? {};
-    this.fields ??= {};
-
-    const baseSnapshot = this._wngCombatExtenderBaseFields;
-    if (baseSnapshot) {
-      this.fields.pool = Number(baseSnapshot.pool ?? this.fields.pool ?? 0);
-      this.fields.damage = Number(baseSnapshot.damage ?? this.fields.damage ?? 0);
-      this.fields.difficulty = Number(baseSnapshot.difficulty ?? this.fields.difficulty ?? 0);
-      if (!this.fields.ed && baseSnapshot.ed) {
-        this.fields.ed = { value: 0, dice: baseSnapshot.ed.dice ?? "" };
-      }
-      if (!this.fields.ap && baseSnapshot.ap) {
-        this.fields.ap = { value: 0, dice: baseSnapshot.ap.dice ?? "" };
-      }
-      if (this.fields.ed && baseSnapshot.ed) {
-        this.fields.ed.value = Number(baseSnapshot.ed.value ?? this.fields.ed.value ?? 0);
-        if (baseSnapshot.ed.dice !== undefined) {
-          this.fields.ed.dice = baseSnapshot.ed.dice;
-        }
-      }
-      if (this.fields.ap && baseSnapshot.ap) {
-        this.fields.ap.value = Number(baseSnapshot.ap.value ?? this.fields.ap.value ?? 0);
-      }
-    }
-
-    this.fields.calledShot ??= { enabled: false, size: "", label: "" };
-    this.fields.pool = Number(this.fields.pool ?? 0);
-    this.fields.damage = Number(this.fields.damage ?? 0);
-    this.fields.difficulty = Number(this.fields.difficulty ?? 0);
-    if (this.fields.ed) {
-      this.fields.ed.value = Number(this.fields.ed.value ?? 0);
-      this.fields.ed.dice ??= "";
-    }
-    if (this.fields.ap) {
-      this.fields.ap.value = Number(this.fields.ap.value ?? 0);
-      this.fields.ap.dice ??= "";
-    }
-
-    this._wngCombatExtenderBaseFields = {
-      pool: this.fields.pool,
-      damage: this.fields.damage,
-      difficulty: this.fields.difficulty,
-      ed: this.fields.ed ? { value: this.fields.ed.value, dice: this.fields.ed.dice } : undefined,
-      ap: this.fields.ap ? { value: this.fields.ap.value, dice: this.fields.ap.dice } : undefined,
-    };
-
+    // Call original computeFields first
+    originalComputeFields.call(this);
+    
+    const weapon = this.weapon;
+    
+    // Handle conflicts between options
     if (this.fields.allOutAttack && this.fields.fullDefence) {
       this.fields.fullDefence = false;
     }
-
-    const tooltips = this.tooltips;
-    const hasTooltips = Boolean(tooltips?.start && tooltips?.finish && tooltips?.add);
-    const startTooltip = (...args) => {
-      if (hasTooltips) {
-        tooltips.start(...args);
-      }
-    };
-    const finishTooltip = (...args) => {
-      if (hasTooltips) {
-        tooltips.finish(...args);
-      }
-    };
-    const addTooltip = (...args) => {
-      if (hasTooltips) {
-        tooltips.add(...args);
-      }
-    };
-
-    startTooltip(this);
-    this.fields.pool += (weapon.attack?.base || 0) + (weapon.attack?.bonus || 0);
-    this.fields.damage += (weapon.system?.damage?.base || 0) + (weapon.system?.damage?.bonus || 0) + ((weapon.system?.damage?.rank || 0) * (actor.system?.advances?.rank || 0));
-    if (this.fields.ed) {
-      this.fields.ed.value += (weapon.system?.damage?.ed?.base || 0) + (weapon.system?.damage?.ed?.bonus || 0) + ((weapon.system?.damage?.ed?.rank || 0) * (actor.system?.advances?.rank || 0));
-    }
-    if (this.fields.ap) {
-      this.fields.ap.value += (weapon.system?.damage?.ap?.base || 0) + (weapon.system?.damage?.ap?.bonus || 0) + ((weapon.system?.damage?.ap?.rank || 0) * (actor.system?.advances?.rank || 0));
-    }
-
-    if (weapon.isMelee) {
-      const attribute = weapon.system?.damage?.attribute || "strength";
-      const attributeValue = actor.system?.attributes?.[attribute]?.total;
-      if (Number.isFinite(attributeValue)) {
-        this.fields.damage += attributeValue;
-      }
-    }
-    finishTooltip(this, "Weapon");
-
+    
+    // Store base damage values for pinning attack
     const baseDamage = this.fields.damage;
-    const baseEdValue = this.fields.ed?.value;
-    const baseEdDice = this.fields.ed?.dice;
+    const baseEdValue = this.fields.ed.value;
+    const baseEdDice = this.fields.ed.dice;
 
-    if (this.fields.aim) {
-      this.fields.pool++;
-      const aimLabel = `${game.i18n.localize("WEAPON.AIM")} (+1 Die or ignore Engaged penalty)`;
-      addTooltip("pool", 1, aimLabel);
-    }
-
-    if (this.fields.calledShot?.enabled && this.fields.calledShot.size) {
-      startTooltip(this);
-      let value = 0;
-      switch (this.fields.calledShot.size) {
-        case "tiny":
-          value = 3;
-          break;
-        case "small":
-          value = 2;
-          break;
-        case "medium":
-          value = 1;
-          break;
-      }
-      this.fields.difficulty += value;
-      if (this.fields.ed) {
-        this.fields.ed.value += value;
-      }
-      finishTooltip(this, game.i18n.localize("WEAPON.CALLED_SHOT"));
-    }
-    else if (!this.fields.calledShot?.enabled) {
-      this.fields.calledShot.size = "";
-    }
-
-    startTooltip(this);
-    if (this.fields.range === "short") {
-      this.fields.pool += 1;
-      finishTooltip(this, "Short Range");
-    }
-    else if (this.fields.range === "long") {
-      this.fields.difficulty += 2;
-      finishTooltip(this, "Long Range");
-    }
-    else {
-      finishTooltip();
-    }
-
+    // Melee-specific options
     if (weapon.isMelee) {
-      if (this.fields.charging) {
-        this.fields.pool++;
-        addTooltip("pool", 1, COMBAT_OPTION_LABELS.charge);
-      }
-
       if (this.fields.allOutAttack) {
         this.fields.pool += 2;
-        addTooltip("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
+        this.tooltips.add("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
       }
 
       if (this.fields.grapple) {
-        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
+        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
       }
 
       if (this.fields.fallBack) {
-        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
+        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
       }
     }
 
+    // Ranged-specific options
     if (weapon.isRanged) {
       if (this.fields.brace) {
-        const traits = weapon.system?.traits;
-        const heavyTrait = typeof traits?.has === "function" ? traits.has("heavy") : undefined;
+        const heavyTrait = weapon.system.traits.has("heavy");
         const heavyRating = Number(heavyTrait?.rating ?? heavyTrait?.value ?? 0);
-        const actorStrength = actor.system?.attributes?.strength?.total;
+        const actorStrength = this.actor.system.attributes.strength.total;
 
-        if (heavyTrait && Number.isFinite(heavyRating) && heavyRating > 0 && (!Number.isFinite(actorStrength) || actorStrength < heavyRating)) {
+        if (heavyTrait && Number.isFinite(heavyRating) && heavyRating > 0 && actorStrength < heavyRating) {
           this.fields.difficulty = Math.max(this.fields.difficulty - 2, 0);
-          addTooltip("difficulty", -2, COMBAT_OPTION_LABELS.brace);
+          this.tooltips.add("difficulty", -2, COMBAT_OPTION_LABELS.brace);
         }
         else {
-          addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.brace);
+          this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.brace);
         }
       }
 
       if (this.fields.pinning) {
         if (baseDamage) {
-          addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
+          this.tooltips.add("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
         }
         this.fields.damage = 0;
-        if (this.fields.ed) {
-          this.fields.ed.value = 0;
-          this.fields.ed.dice = "";
-        }
-        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
+        this.fields.ed.value = 0;
+        this.fields.ed.dice = "";
+        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
       }
     }
 
+    // General options
     if (this.fields.fullDefence) {
-      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
+      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
     }
 
     if (this.fields.cover === "half") {
-      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
+      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
     }
     else if (this.fields.cover === "full") {
-      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
+      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
     }
 
-    if (this.actor?.isMob) {
-      const mobBonus = Math.ceil((this.actor.mob || 0) / 2);
-      if (mobBonus > 0) {
-        this.fields.pool += mobBonus;
-        addTooltip("pool", mobBonus, "Mob");
-      }
-    }
-
+    // Restore damage values if not pinning
     if (!this.fields.pinning) {
       this.fields.damage = baseDamage;
-      if (this.fields.ed) {
-        this.fields.ed.value = baseEdValue;
-        this.fields.ed.dice = baseEdDice;
-      }
+      this.fields.ed.value = baseEdValue;
+      this.fields.ed.dice = baseEdDice;
     }
   };
 
@@ -374,6 +208,7 @@ function injectCombatOptions(app, html) {
   const optionInputs = new Map();
   const checkboxControls = new Map();
 
+  // Move aim checkbox to hidden container
   const aimGroup = attackSection.find('input[name="aim"]').closest('.form-group');
   if (aimGroup.length) {
     const aimInput = aimGroup.find('input[name="aim"]').detach();
@@ -382,6 +217,7 @@ function injectCombatOptions(app, html) {
     optionInputs.set('aim', aimInput);
   }
 
+  // Move charging checkbox to hidden container (if it exists)
   const chargingGroup = attackSection.find('input[name="charging"]').closest('.form-group');
   if (chargingGroup.length) {
     const chargingInput = chargingGroup.find('input[name="charging"]').detach();
@@ -390,9 +226,11 @@ function injectCombatOptions(app, html) {
     optionInputs.set('charging', chargingInput);
   }
 
+  // Handle called shot - enhance existing or create new
   const calledShotGroup = attackSection.find('select[name="calledShot.size"]').closest('.form-group');
   let calledShotSelect;
   let calledShotLabel;
+  
   if (calledShotGroup.length) {
     calledShotSelect = calledShotGroup.find('select[name="calledShot.size"]').detach();
     calledShotLabel = calledShotGroup.find('input[name="calledShot.label"]').detach();
@@ -400,7 +238,11 @@ function injectCombatOptions(app, html) {
   }
   else {
     calledShotSelect = $('<select name="calledShot.size"></select>');
-    const calledShotSizes = app.context?.calledShotSizes ?? {};
+    const calledShotSizes = app.context?.calledShotSizes ?? {
+      tiny: "SIZE.TINY",
+      small: "SIZE.SMALL",
+      medium: "SIZE.MEDIUM",
+    };
     for (const [value, label] of Object.entries(calledShotSizes)) {
       const option = $('<option></option>').attr('value', value).text(game.i18n.localize(label));
       calledShotSelect.append(option);
@@ -408,12 +250,11 @@ function injectCombatOptions(app, html) {
     calledShotSelect.prepend('<option value=""></option>');
     calledShotLabel = $('<input type="text" name="calledShot.label" placeholder="Label" />');
   }
+  
   calledShotSelect.val(app.fields.calledShot?.size ?? "");
   calledShotLabel.val(app.fields.calledShot?.label ?? "");
 
-  const calledShotEnabledInput = createHiddenCheckbox('calledShot.enabled', app.fields.calledShot?.enabled ?? false);
-  optionInputs.set('calledShot.enabled', calledShotEnabledInput);
-
+  // Create hidden inputs for our new options
   const checkboxNames = [
     'allOutAttack',
     'grapple',
@@ -430,6 +271,7 @@ function injectCombatOptions(app, html) {
 
   optionInputs.set('cover', createHiddenText('cover', app.fields.cover ?? ''));
 
+  // Create the combat options details element
   const details = $('<details class="combat-options"></details>');
   if (app.context?.combatOptionsOpen) {
     details.attr('open', 'open');
@@ -446,6 +288,7 @@ function injectCombatOptions(app, html) {
   const content = $('<div class="combat-options__content"></div>');
   details.append(content);
 
+  // Melee options
   if (app.weapon?.isMelee) {
     const group = $('<div class="combat-options__group"></div>');
     group.append(`<div class="combat-options__header">${localizeOrFallback('WNG.MeleeOptions', 'Melee')}</div>`);
@@ -463,6 +306,7 @@ function injectCombatOptions(app, html) {
     content.append(group);
   }
 
+  // Ranged options
   if (app.weapon?.isRanged) {
     const group = $('<div class="combat-options__group"></div>');
     group.append(`<div class="combat-options__header">${localizeOrFallback('WNG.RangedOptions', 'Ranged')}</div>`);
@@ -480,19 +324,24 @@ function injectCombatOptions(app, html) {
     content.append(group);
   }
 
+  // General options
   const generalGroup = $('<div class="combat-options__group"></div>');
   generalGroup.append(`<div class="combat-options__header">${localizeOrFallback('WNG.GeneralOptions', 'General')}</div>`);
-  const calledShotOption = createCalledShotOption(app, optionInputs, checkboxControls, calledShotSelect, calledShotLabel);
+  
+  const calledShotOption = createCalledShotOption(app, calledShotSelect, calledShotLabel);
   if (calledShotOption) {
     generalGroup.append(calledShotOption);
   }
+  
   const fullDefenceOption = createCheckboxOption(app, { name: 'fullDefence', label: COMBAT_OPTION_LABELS.fullDefence }, optionInputs, checkboxControls);
   if (fullDefenceOption) {
     generalGroup.append(fullDefenceOption);
   }
+  
   generalGroup.append(createCoverOption(app, optionInputs));
   content.append(generalGroup);
 
+  // Insert the combat options into the dialog
   const insertionPoint = attackSection.find('hr').first();
   if (insertionPoint.length) {
     details.insertBefore(insertionPoint);
@@ -501,6 +350,7 @@ function injectCombatOptions(app, html) {
     attackSection.append(details);
   }
 
+  // Helper function to create hidden checkbox
   function createHiddenCheckbox(name, initial) {
     const input = $(`<input type="checkbox" name="${name}" class="combat-options__hidden-input" />`);
     input.prop('checked', initial);
@@ -508,6 +358,7 @@ function injectCombatOptions(app, html) {
     return input;
   }
 
+  // Helper function to create hidden text input
   function createHiddenText(name, value) {
     const input = $(`<input type="hidden" name="${name}" />`);
     input.val(value);
@@ -515,6 +366,7 @@ function injectCombatOptions(app, html) {
     return input;
   }
 
+  // Helper function to create checkbox option
   function createCheckboxOption(app, option, inputMap, controlMap) {
     const input = inputMap.get(option.name);
     if (!input?.length) {
@@ -552,15 +404,11 @@ function injectCombatOptions(app, html) {
     return wrapper;
   }
 
-  function createCalledShotOption(app, inputMap, controlMap, sizeSelect, labelInput) {
-    const hidden = inputMap.get('calledShot.enabled');
-    if (!hidden?.length) {
-      return null;
-    }
-
+  // Helper function to create called shot option
+  function createCalledShotOption(app, sizeSelect, labelInput) {
     const wrapper = $('<div class="combat-options__option"></div>');
     const checkbox = $('<input type="checkbox" />');
-    checkbox.prop('checked', hidden.prop('checked'));
+    checkbox.prop('checked', Boolean(app.fields.calledShot?.size));
     const label = $('<span></span>').text('Called Shot');
     wrapper.append(checkbox, label);
 
@@ -578,32 +426,31 @@ function injectCombatOptions(app, html) {
       nested.toggle(active);
       sizeSelect.prop('disabled', !active);
       labelInput.prop('disabled', !active);
+      if (!active) {
+        sizeSelect.val('');
+        labelInput.val('');
+      }
     };
 
     checkbox.on('change', () => {
       const checked = checkbox.prop('checked');
-      if (setCheckboxInput(hidden, checked)) {
-        toggle(checked);
-      }
-      else {
-        toggle(checked);
-      }
+      toggle(checked);
       app.render(false);
     });
 
-    controlMap.set('calledShot.enabled', {
-      update(value) {
-        checkbox.data('internal', true);
-        checkbox.prop('checked', value);
-        checkbox.data('internal', false);
-        toggle(value);
-      }
+    sizeSelect.on('change', () => {
+      app.render(false);
     });
 
-    toggle(hidden.prop('checked'));
+    labelInput.on('change', () => {
+      app.render(false);
+    });
+
+    toggle(Boolean(app.fields.calledShot?.size));
     return wrapper;
   }
 
+  // Helper function to create cover option
   function createCoverOption(app, inputMap) {
     const input = inputMap.get('cover');
     const wrapper = $('<label class="combat-options__option combat-options__option--select"></label>');
@@ -625,6 +472,7 @@ function injectCombatOptions(app, html) {
     return wrapper;
   }
 
+  // Helper function to set checkbox input value
   function setCheckboxInput(input, value) {
     if (!input?.length || Boolean(input.prop('checked')) === Boolean(value)) {
       return false;
@@ -633,6 +481,7 @@ function injectCombatOptions(app, html) {
     return true;
   }
 
+  // Helper function to handle conflicts between options
   function handleConflicts(name, checked) {
     if (!checked) {
       return;
@@ -645,6 +494,7 @@ function injectCombatOptions(app, html) {
     }
   }
 
+  // Helper function to sync option values
   function syncOption(name, value) {
     const input = optionInputs.get(name);
     if (!input?.length) {
@@ -660,6 +510,7 @@ function injectCombatOptions(app, html) {
     }
   }
 
+  // Helper function for localization with fallback
   function localizeOrFallback(key, fallback) {
     try {
       if (game.i18n?.has?.(key)) {
