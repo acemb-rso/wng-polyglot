@@ -46,12 +46,18 @@ const SIZE_MODIFIER_OPTIONS = {
 
 // --- Template preloading & helpers ------------------------------------------
 Hooks.once("init", async () => {
+  // Load templates
   await loadTemplates([
     `${TEMPLATE_BASE_PATH}/combat-options.hbs`,
     `${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`,
     `${TEMPLATE_BASE_PATH}/partials/co-select.hbs`
   ]);
 
+  // Register partials manually with short names
+  Handlebars.registerPartial("co-checkbox", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`).then(r => r.text()));
+  Handlebars.registerPartial("co-select", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-select.hbs`).then(r => r.text()));
+
+  // Register helpers
   Handlebars.registerHelper("t", (s) => String(s));          // passthrough
   Handlebars.registerHelper("eq", (a, b) => a === b);
   Handlebars.registerHelper("not", (v) => !v);
@@ -288,17 +294,21 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       ],
       visionOptions: [
         { value: "",        label: "Normal" },
-        { value: "lowLight",label: "Low Light (+1 DN)" },
-        { value: "darkness",label: "Darkness (+2 DN)" }
+        { value: "twilight",label: "Twilight (+1 DN Ranged / +0 DN Melee)" },
+        { value: "dim",     label: "Dim Light (+2 DN Ranged / +1 DN Melee)" },
+        { value: "heavy",   label: "Heavy Fog (+3 DN Ranged / +2 DN Melee)" },
+        { value: "darkness",label: "Darkness (+4 DN Ranged / +3 DN Melee)" }
       ],
       sizeOptions: [
         { value: "",           label: "Average Target (No modifier)" },
-        { value: "small",      label: "Small Target (–1 Die, +1 DN)" },
+        { value: "tiny",       label: "Tiny Target (+2 DN)" },
+        { value: "small",      label: "Small Target (+1 DN)" },
         { value: "large",      label: "Large Target (+1 Die)" },
         { value: "huge",       label: "Huge Target (+2 Dice)" },
         { value: "gargantuan", label: "Gargantuan Target (+3 Dice)" }
       ],
       calledShotSizes: [
+        { value: "",       label: "" },
         { value: "tiny",   label: game.i18n.localize("SIZE.TINY") },
         { value: "small",  label: game.i18n.localize("SIZE.SMALL") },
         { value: "medium", label: game.i18n.localize("SIZE.MEDIUM") }
