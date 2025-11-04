@@ -129,103 +129,113 @@ function ensureWeaponDialogPatched(app) {
     originalComputeFields.call(this);
 
     const weapon = this.weapon;
+    if (!weapon) return;
+
+    // Normalise fields/collections so that optional chaining below can't explode.
+    const fields = this.fields ?? (this.fields = {});
+    const tooltips = this.tooltips;
+    const addTooltip = (...args) => tooltips?.add?.(...args);
+
+    fields.pool = Number(fields.pool ?? 0);
+    fields.difficulty = Number(fields.difficulty ?? 0);
+    fields.ed ??= { value: 0, dice: "" };
 
     // Mutual exclusivity: AOA vs Full Defence
-    if (this.fields.allOutAttack && this.fields.fullDefence) {
-      this.fields.fullDefence = false;
+    if (fields.allOutAttack && fields.fullDefence) {
+      fields.fullDefence = false;
     }
 
-    const baseDamage  = this.fields.damage;
-    const baseEdValue = this.fields.ed.value;
-    const baseEdDice  = this.fields.ed.dice;
+    const baseDamage  = fields.damage;
+    const baseEdValue = fields.ed.value;
+    const baseEdDice  = fields.ed.dice;
     let damageSuppressed = false;
 
     // Melee
-    if (weapon.isMelee) {
-      if (this.fields.allOutAttack) {
-        this.fields.pool += 2;
-        this.tooltips.add("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
+    if (weapon?.isMelee) {
+      if (fields.allOutAttack) {
+        fields.pool += 2;
+        addTooltip("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
       }
-      if (this.fields.grapple)  this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
-      if (this.fields.fallBack) this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
+      if (fields.grapple)  addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
+      if (fields.fallBack) addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
     }
 
     // Ranged
-    if (weapon.isRanged) {
-      if (this.fields.brace) {
+    if (weapon?.isRanged) {
+      if (fields.brace) {
         const heavyTrait = weapon.system?.traits?.get?.("heavy") ?? weapon.system?.traits?.has?.("heavy");
         // Try to read a rating (system variants differ)
         const heavyRating = Number(heavyTrait?.rating ?? heavyTrait?.value ?? 0);
-        const actorStrength = this.actor.system?.attributes?.strength?.total ?? 0;
+        const actorStrength = this.actor?.system?.attributes?.strength?.total ?? 0;
 
         if (heavyTrait && Number.isFinite(heavyRating) && heavyRating > 0 && actorStrength < heavyRating) {
-          this.fields.difficulty = Math.max(this.fields.difficulty - 2, 0);
-          this.tooltips.add("difficulty", -2, COMBAT_OPTION_LABELS.brace);
+          fields.difficulty = Math.max(fields.difficulty - 2, 0);
+          addTooltip("difficulty", -2, COMBAT_OPTION_LABELS.brace);
         } else {
-          this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.brace);
+          addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.brace);
         }
       }
 
-      if (this.fields.pinning) {
-        if (baseDamage) this.tooltips.add("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
-        this.fields.damage = 0;
-        this.fields.ed.value = 0;
-        this.fields.ed.dice = "";
-        this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
+      if (fields.pinning) {
+        if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
+        fields.damage = 0;
+        fields.ed.value = 0;
+        fields.ed.dice = "";
+        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
         damageSuppressed = true;
       }
 
-      if (this.fields.pistolsInMelee && weapon.system?.traits?.has?.("pistol")) {
-        this.fields.difficulty += 2;
-        this.tooltips.add("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
+      if (fields.pistolsInMelee && weapon.system?.traits?.has?.("pistol")) {
+        fields.difficulty += 2;
+        addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
       }
     }
 
-    if (this.fields.fullDefence) {
-      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
+    if (fields.fullDefence) {
+      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
     }
 
     // Vision
-    const visionKey = this.fields.visionPenalty;
+    const visionKey = fields.visionPenalty;
     const visionPenalty = VISION_PENALTIES[visionKey];
     if (visionPenalty) {
-      const penalty = weapon.isMelee ? visionPenalty.melee : visionPenalty.ranged;
-      if (penalty > 0) this.fields.difficulty += penalty;
-      this.tooltips.add("difficulty", penalty ?? 0, visionPenalty.label);
+      const penalty = weapon?.isMelee ? visionPenalty.melee : visionPenalty.ranged;
+      if (penalty > 0) fields.difficulty += penalty;
+      addTooltip("difficulty", penalty ?? 0, visionPenalty.label);
     }
 
     // Size
-    const sizeKey = this.fields.sizeModifier;
+    const sizeKey = fields.sizeModifier;
     const sizeModifier = SIZE_MODIFIER_OPTIONS[sizeKey];
     if (sizeModifier) {
       if (sizeModifier.pool) {
-        this.fields.pool += sizeModifier.pool;
-        this.tooltips.add("pool", sizeModifier.pool, sizeModifier.label);
+        fields.pool += sizeModifier.pool;
+        addTooltip("pool", sizeModifier.pool, sizeModifier.label);
       }
       if (sizeModifier.difficulty) {
-        this.fields.difficulty += sizeModifier.difficulty;
-        this.tooltips.add("difficulty", sizeModifier.difficulty, sizeModifier.label);
+        fields.difficulty += sizeModifier.difficulty;
+        addTooltip("difficulty", sizeModifier.difficulty, sizeModifier.label);
       }
     }
 
     // Called shot: Disarm
-    if (this.fields.calledShot?.disarm) {
-      if (baseDamage) this.tooltips.add("damage", -baseDamage, COMBAT_OPTION_LABELS.calledShotDisarm);
-      this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
-      this.fields.damage = 0;
-      this.fields.ed.value = 0;
-      this.fields.ed.dice = "";
+    if (fields.calledShot?.disarm) {
+      if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.calledShotDisarm);
+      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
+      fields.damage = 0;
+      fields.ed.value = 0;
+      fields.ed.dice = "";
       damageSuppressed = true;
     }
 
     // Cover (tooltip only; W&G system applies the real math)
-    if (this.fields.cover === "half") this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
-    else if (this.fields.cover === "full") this.tooltips.add("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
+    if (fields.cover === "half") addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
+    else if (fields.cover === "full") addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
 
     if (!damageSuppressed) {
-      this.fields.damage  = baseDamage;
-      this.fields.ed.value = baseEdValue;
-      this.fields.ed.dice  = baseEdDice;
+      fields.damage  = baseDamage;
+      fields.ed.value = baseEdValue;
+      fields.ed.dice  = baseEdDice;
     }
   };
 
@@ -315,7 +325,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
-      foundry.utils.setProperty(app.fields, name, value);
+      const fields = app.fields ?? (app.fields = {});
+      foundry.utils.setProperty(fields, name, value);
 
       // Inter-option conflicts
       if (name === "allOutAttack" && value) foundry.utils.setProperty(app.fields, "fullDefence", false);
