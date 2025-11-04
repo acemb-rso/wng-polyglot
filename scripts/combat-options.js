@@ -1,19 +1,16 @@
 // modules/wng-CombatExtender/scripts/combat-options.js
 
-// --- Module path & labels ----------------------------------------------------
 const MODULE_ID = "wng-CombatExtender";
 const MODULE_BASE_PATH = `modules/${MODULE_ID}`;
 const TEMPLATE_BASE_PATH = `${MODULE_BASE_PATH}/templates`;
 const MODULE_LABEL = "WNG Combat Extender";
 
-// --- Logging -----------------------------------------------------------------
 const log = (level, message, ...data) => {
   const logger = console[level] ?? console.log;
   logger(`${MODULE_LABEL} | ${message}`, ...data);
 };
 const logError = (...args) => log("error", ...args);
 
-// --- Labels / Tables ---------------------------------------------------------
 const COMBAT_OPTION_LABELS = {
   allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
   charge: "Charge (+1 Die, 2× Speed)",
@@ -44,27 +41,22 @@ const SIZE_MODIFIER_OPTIONS = {
   gargantuan:  { label: "Gargantuan Target (+3 Dice)", pool: 3 }
 };
 
-// --- Template preloading & helpers ------------------------------------------
 Hooks.once("init", async () => {
-  // Load templates
   await loadTemplates([
     `${TEMPLATE_BASE_PATH}/combat-options.hbs`,
     `${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`,
     `${TEMPLATE_BASE_PATH}/partials/co-select.hbs`
   ]);
 
-  // Register partials manually with short names
   Handlebars.registerPartial("co-checkbox", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`).then(r => r.text()));
   Handlebars.registerPartial("co-select", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-select.hbs`).then(r => r.text()));
 
-  // Register helpers
   Handlebars.registerHelper("t", (s) => String(s));
   Handlebars.registerHelper("eq", (a, b) => a === b);
   Handlebars.registerHelper("not", (v) => !v);
   Handlebars.registerHelper("concat", (...a) => a.slice(0, -1).join(""));
 });
 
-// --- Patch WeaponDialog prototype (context/defaults/compute) ----------------
 const patchedWeaponDialogPrototypes = new WeakSet();
 
 function ensureWeaponDialogPatched(app) {
@@ -83,7 +75,6 @@ function ensureWeaponDialogPatched(app) {
     return false;
   }
 
-  // Add UI context
   prototype._prepareContext = async function (options) {
     const context = await originalPrepareContext.call(this, options);
 
@@ -105,11 +96,9 @@ function ensureWeaponDialogPatched(app) {
     return context;
   };
 
-  // Add default fields
   prototype._defaultFields = function () {
     const defaults = originalDefaultFields.call(this) ?? {};
     return foundry.utils.mergeObject(defaults, {
-      charging: false,
       allOutAttack: false,
       grapple: false,
       fallBack: false,
@@ -124,13 +113,11 @@ function ensureWeaponDialogPatched(app) {
         enabled: false,
         disarm: false,
         size: "",
-        label: "",
-        entangle: false
+        label: ""
       }
     }, { inplace: false });
   };
 
-  // Apply modifiers/tooltips
   prototype.computeFields = function () {
     originalComputeFields.call(this);
 
@@ -240,42 +227,35 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
-// --- Helper to update visible fields in the UI ------------------------------
 function updateVisibleFields(app, html) {
   const $html = html instanceof jQuery ? html : $(html);
   
-  // Update dice pool
   const poolInput = $html.find('input[name="pool"]');
   if (poolInput.length && app.fields?.pool !== undefined) {
     poolInput.val(app.fields.pool);
   }
   
-  // Update difficulty
   const difficultyInput = $html.find('input[name="difficulty"]');
   if (difficultyInput.length && app.fields?.difficulty !== undefined) {
     difficultyInput.val(app.fields.difficulty);
   }
   
-  // Update damage
   const damageInput = $html.find('input[name="damage"]');
   if (damageInput.length && app.fields?.damage !== undefined) {
     damageInput.val(app.fields.damage);
   }
   
-  // Update ED value
   const edValueInput = $html.find('input[name="ed.value"]');
   if (edValueInput.length && app.fields?.ed?.value !== undefined) {
     edValueInput.val(app.fields.ed.value);
   }
   
-  // Update ED dice
   const edDiceInput = $html.find('input[name="ed.dice"]');
   if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
     edDiceInput.val(app.fields.ed.dice);
   }
 }
 
-// --- Single render hook (template-based UI, delegated listeners) -------------
 Hooks.on("renderWeaponDialog", async (app, html) => {
   try {
     if (game.system.id !== "wrath-and-glory") return;
@@ -284,12 +264,21 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const $html = html instanceof jQuery ? html : $(html);
 
-    // Remove the original Aim and Called Shot controls
+    // Remove original controls to prevent duplicates
     $html.find('.form-group').has('input[name="aim"]').remove();
+    $html.find('.form-group').has('input[name="charging"]').remove();
     $html.find('.form-group').has('select[name="calledShot.size"]').remove();
 
     const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
+
+    // Store the initial computed values so we can reset to them
+    if (!app._initialFieldsComputed) {
+      if (typeof app.computeInitialFields === 'function') {
+        app.computeInitialFields();
+      }
+      app._initialFieldsComputed = true;
+    }
 
     const ctx = {
       open: app._combatOptionsOpen ?? false,
@@ -311,8 +300,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         calledShot: "Called Shot",
         calledShotSize: "Target Size",
         calledShotLabel: "Label",
-        disarm: "Disarm (0 Damage)",
-        entangle: "Entangle"
+        disarm: "Disarm (0 Damage)"
       },
       coverOptions: [
         { value: "",     label: "No Cover" },
@@ -342,13 +330,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       ]
     };
 
-    // Render & inject
     const existing = attackSection.find("[data-co-root]");
     const htmlFrag = await renderTemplate(`${TEMPLATE_BASE_PATH}/combat-options.hbs`, ctx);
     if (existing.length) {
       existing.replaceWith(htmlFrag);
     } else {
-      // Insert before the first <hr> if it exists
       const hr = attackSection.find('hr').first();
       if (hr.length) {
         hr.before(htmlFrag);
@@ -357,16 +343,13 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       }
     }
 
-    // Delegated listeners
     const root = attackSection.find("[data-co-root]");
     root.off(".combatOptions");
 
-    // Track collapse state
     root.on("toggle.combatOptions", () => {
       app._combatOptionsOpen = root.prop("open");
     });
 
-    // Generic input handler - just update fields and recompute, don't submit
     root.on("change.combatOptions", "[data-co]", (ev) => {
       ev.stopPropagation();
       const el = ev.currentTarget;
@@ -376,29 +359,27 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       
       foundry.utils.setProperty(fields, name, value);
 
-      // Handle conflicts
       if (name === "allOutAttack" && value) {
         foundry.utils.setProperty(fields, "fullDefence", false);
-        // Update the checkbox in the UI
         root.find('input[name="fullDefence"]').prop('checked', false);
       }
       if (name === "fullDefence" && value) {
         foundry.utils.setProperty(fields, "allOutAttack", false);
-        // Update the checkbox in the UI
         root.find('input[name="allOutAttack"]').prop('checked', false);
       }
 
-      // Show/hide called shot panel
       if (name === "calledShot.enabled") {
         root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
       }
 
-      // Recompute fields
-      if (typeof app.computeFields === "function") {
+      // Force complete recalculation
+      if (typeof app.computeInitialFields === 'function') {
+        app.computeInitialFields();
+      }
+      if (typeof app.computeFields === 'function') {
         app.computeFields();
       }
 
-      // Update the visible form fields
       updateVisibleFields(app, $html);
     });
 
