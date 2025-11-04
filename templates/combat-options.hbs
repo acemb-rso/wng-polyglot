@@ -8,39 +8,108 @@
     {{#if isMelee}}
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.MeleeOptions"}}</div>
-      {{> co-checkbox name="allOutAttack" label=(t labels.allOutAttack) disabled=false checked=fields.allOutAttack}}
-      {{> co-checkbox name="charging"     label=(t labels.charge)       disabled=false checked=fields.charging}}
-      {{> co-checkbox name="grapple"      label=(t labels.grapple)      disabled=false checked=fields.grapple}}
-      {{> co-checkbox name="fallBack"     label=(t labels.fallBack)     disabled=false checked=fields.fallBack}}
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="allOutAttack" {{#if fields.allOutAttack}}checked{{/if}} />
+        <span>{{t labels.allOutAttack}}</span>
+      </div>
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="charging" {{#if fields.charging}}checked{{/if}} />
+        <span>{{t labels.charge}}</span>
+      </div>
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="grapple" {{#if fields.grapple}}checked{{/if}} />
+        <span>{{t labels.grapple}}</span>
+      </div>
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="fallBack" {{#if fields.fallBack}}checked{{/if}} />
+        <span>{{t labels.fallBack}}</span>
+      </div>
     </div>
     {{/if}}
 
     {{#if isRanged}}
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.RangedOptions"}}</div>
-      {{> co-checkbox name="aim"    label=(concat (localize "WEAPON.AIM") " (+1 Die or ignore Engaged)") disabled=false checked=fields.aim}}
-      {{> co-checkbox name="brace"  label=(t labels.brace)  disabled=(not hasHeavy) checked=fields.brace}}
-      {{> co-checkbox name="pinning" label=(t labels.pinning) disabled=false checked=fields.pinning}}
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="aim" {{#if fields.aim}}checked{{/if}} />
+        <span>{{concat (localize "WEAPON.AIM") " (+1 Die or ignore Engaged)"}}</span>
+      </div>
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="brace" {{#if fields.brace}}checked{{/if}} {{#unless hasHeavy}}disabled{{/unless}} />
+        <span>{{t labels.brace}}</span>
+      </div>
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="pinning" {{#if fields.pinning}}checked{{/if}} />
+        <span>{{t labels.pinning}}</span>
+      </div>
     </div>
     {{/if}}
 
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.GeneralOptions"}}</div>
 
-      {{> co-checkbox name="fullDefence"  label=(t labels.fullDefence)  disabled=false checked=fields.fullDefence}}
-      {{> co-select name="cover"        label=(t labels.cover) value=fields.cover options=coverOptions}}
-      {{> co-select name="visionPenalty" label=(t labels.vision) value=fields.visionPenalty options=visionOptions}}
-      {{> co-select name="sizeModifier"  label=(t labels.size)   value=fields.sizeModifier options=sizeOptions}}
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="fullDefence" {{#if fields.fullDefence}}checked{{/if}} />
+        <span>{{t labels.fullDefence}}</span>
+      </div>
+
+      <label class="combat-options__option combat-options__option--select">
+        <span>{{t labels.cover}}</span>
+        <select data-co name="cover">
+          {{#each coverOptions}}
+            <option value="{{this.value}}" {{#if (eq ../fields.cover this.value)}}selected{{/if}}>
+              {{this.label}}
+            </option>
+          {{/each}}
+        </select>
+      </label>
+
+      <label class="combat-options__option combat-options__option--select">
+        <span>{{t labels.vision}}</span>
+        <select data-co name="visionPenalty">
+          {{#each visionOptions}}
+            <option value="{{this.value}}" {{#if (eq ../fields.visionPenalty this.value)}}selected{{/if}}>
+              {{this.label}}
+            </option>
+          {{/each}}
+        </select>
+      </label>
+
+      <label class="combat-options__option combat-options__option--select">
+        <span>{{t labels.size}}</span>
+        <select data-co name="sizeModifier">
+          {{#each sizeOptions}}
+            <option value="{{this.value}}" {{#if (eq ../fields.sizeModifier this.value)}}selected{{/if}}>
+              {{this.label}}
+            </option>
+          {{/each}}
+        </select>
+      </label>
 
       <div class="combat-options__option combat-options__option--called-shot">
-        {{> co-checkbox name="calledShot.enabled" label=(t labels.calledShot) disabled=false checked=fields.calledShot.enabled}}
+        <div class="combat-options__option">
+          <input data-co type="checkbox" name="calledShot.enabled" {{#if fields.calledShot.enabled}}checked{{/if}} />
+          <span>{{t labels.calledShot}}</span>
+        </div>
         <div class="combat-options__called-shot {{#unless fields.calledShot.enabled}}is-hidden{{/unless}}">
-          {{> co-select name="calledShot.size"  label=(t labels.calledShotSize)  value=fields.calledShot.size options=calledShotSizes}}
+          <label class="combat-options__option combat-options__option--select">
+            <span>{{t labels.calledShotSize}}</span>
+            <select data-co name="calledShot.size">
+              {{#each calledShotSizes}}
+                <option value="{{this.value}}" {{#if (eq ../fields.calledShot.size this.value)}}selected{{/if}}>
+                  {{this.label}}
+                </option>
+              {{/each}}
+            </select>
+          </label>
           <label class="combat-options__note">
             <span>{{t labels.calledShotLabel}}</span>
             <input data-co name="calledShot.label" type="text" value="{{fields.calledShot.label}}" placeholder="Label" />
           </label>
-          {{> co-checkbox name="calledShot.disarm"  label=(t labels.disarm)  disabled=false checked=fields.calledShot.disarm}}
+          <div class="combat-options__option">
+            <input data-co type="checkbox" name="calledShot.disarm" {{#if fields.calledShot.disarm}}checked{{/if}} />
+            <span>{{t labels.disarm}}</span>
+          </div>
         </div>
       </div>
     </div>
