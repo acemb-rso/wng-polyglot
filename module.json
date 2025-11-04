@@ -15,7 +15,12 @@
 		"verified": "13"
 	},
         "esmodules": ["scripts/combat-options.js"],
-	"languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
+        "languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
+        "templates": [
+                "templates/combat-options.hbs",
+                "templates/partials/co-checkbox.hbs",
+                "templates/partials/co-select.hbs"
+        ],
 	"url": "https://github.com/your-org/wng-combat-extender",
 	"manifest": "https://raw.githubusercontent.com/acemb-rso/wng-CombatExtender/main/module.json",
 	"download": "https://github.com/acemb-rso/wng-CombatExtender/archive/refs/heads/main.zip",

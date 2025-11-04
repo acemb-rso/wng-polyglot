@@ -1,8 +1,9 @@
 // modules/wng-CombatExtender/scripts/combat-options.js
 
 // --- Module path & labels ----------------------------------------------------
-const modulePathMatch = import.meta.url.replace(/\\/g, "/").match(/^(.*\/modules\/([^/]+))\/scripts\//);
-const MODULE_BASE_PATH = modulePathMatch ? modulePathMatch[1] : "";
+const MODULE_ID = "wng-CombatExtender";
+const MODULE_BASE_PATH = `modules/${MODULE_ID}`;
+const TEMPLATE_BASE_PATH = `${MODULE_BASE_PATH}/templates`;
 const MODULE_LABEL = "WNG Combat Extender";
 
 // --- Logging -----------------------------------------------------------------
@@ -45,12 +46,20 @@ const SIZE_MODIFIER_OPTIONS = {
 
 // --- Template preloading & helpers ------------------------------------------
 Hooks.once("init", async () => {
-  const base = MODULE_BASE_PATH;
-  await loadTemplates([
-    `${base}/templates/combat-options.hbs`,
-    `${base}/templates/partials/co-checkbox.hbs`,
-    `${base}/templates/partials/co-select.hbs`
+  const [
+    ,
+    checkboxPartial,
+    selectPartial
+  ] = await loadTemplates([
+    `${TEMPLATE_BASE_PATH}/combat-options.hbs`,
+    `${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`,
+    `${TEMPLATE_BASE_PATH}/partials/co-select.hbs`
   ]);
+
+  if (typeof Handlebars?.registerPartial === "function") {
+    Handlebars.registerPartial("co-checkbox", checkboxPartial);
+    Handlebars.registerPartial("co-select", selectPartial);
+  }
 
   Handlebars.registerHelper("t", (s) => String(s));          // passthrough
   Handlebars.registerHelper("eq", (a, b) => a === b);
@@ -92,7 +101,7 @@ function ensureWeaponDialogPatched(app) {
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
       fields.fallBack || fields.brace || fields.pinning || fields.fullDefence ||
       fields.cover || fields.pistolsInMelee || fields.sizeModifier || fields.visionPenalty ||
-      fields.calledShot?.size || fields.calledShot?.disarm
+      fields.calledShot?.enabled || fields.calledShot?.size || fields.calledShot?.disarm
     );
 
     context.hasHeavyTrait = Boolean(this.weapon?.system?.traits?.has?.("heavy"));
@@ -115,9 +124,11 @@ function ensureWeaponDialogPatched(app) {
       sizeModifier: "",
       visionPenalty: "",
       calledShot: {
+        enabled: false,
         disarm: false,
         size: "",
-        label: ""
+        label: "",
+        entangle: false
       }
     }, { inplace: false });
   };
@@ -239,8 +250,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // Make sure prototype extensions are in place
     ensureWeaponDialogPatched(app);
 
+    const $html = html instanceof jQuery ? html : $(html);
+
     // Anchor
-    const attackSection = html.find(".attack");
+    const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
 
     // Template context
@@ -293,7 +306,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     // Render & inject (idempotent)
     const existing = attackSection.find("[data-co-root]");
-    const htmlFrag = await renderTemplate(`${MODULE_BASE_PATH}/templates/combat-options.hbs`, ctx);
+    const htmlFrag = await renderTemplate(`${TEMPLATE_BASE_PATH}/combat-options.hbs`, ctx);
     if (existing.length) existing.replaceWith(htmlFrag);
     else attackSection.append(htmlFrag);
 
@@ -301,11 +314,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     const root = attackSection.find("[data-co-root]");
     root.off(".combatOptions");
 
-    // Collapse toggle
-    root.on("click.combatOptions", ".combat-options__summary", () => {
-      const content = root.find(".combat-options__content");
-      content.toggleClass("is-collapsed");
-      app._combatOptionsOpen = !content.hasClass("is-collapsed");
+    // Track collapse state
+    root.on("toggle.combatOptions", () => {
+      app._combatOptionsOpen = root.prop("open");
     });
 
     // Generic input handler
