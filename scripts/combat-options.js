@@ -58,7 +58,7 @@ Hooks.once("init", async () => {
   Handlebars.registerPartial("co-select", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-select.hbs`).then(r => r.text()));
 
   // Register helpers
-  Handlebars.registerHelper("t", (s) => String(s));          // passthrough
+  Handlebars.registerHelper("t", (s) => String(s));
   Handlebars.registerHelper("eq", (a, b) => a === b);
   Handlebars.registerHelper("not", (v) => !v);
   Handlebars.registerHelper("concat", (...a) => a.slice(0, -1).join(""));
@@ -137,7 +137,6 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return;
 
-    // Normalise fields/collections so that optional chaining below can't explode.
     const fields = this.fields ?? (this.fields = {});
     const tooltips = this.tooltips;
     const addTooltip = (...args) => tooltips?.add?.(...args);
@@ -146,7 +145,6 @@ function ensureWeaponDialogPatched(app) {
     fields.difficulty = Number(fields.difficulty ?? 0);
     fields.ed ??= { value: 0, dice: "" };
 
-    // Mutual exclusivity: AOA vs Full Defence
     if (fields.allOutAttack && fields.fullDefence) {
       fields.fullDefence = false;
     }
@@ -156,7 +154,6 @@ function ensureWeaponDialogPatched(app) {
     const baseEdDice  = fields.ed.dice;
     let damageSuppressed = false;
 
-    // Melee
     if (weapon?.isMelee) {
       if (fields.allOutAttack) {
         fields.pool += 2;
@@ -166,11 +163,9 @@ function ensureWeaponDialogPatched(app) {
       if (fields.fallBack) addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
     }
 
-    // Ranged
     if (weapon?.isRanged) {
       if (fields.brace) {
         const heavyTrait = weapon.system?.traits?.get?.("heavy") ?? weapon.system?.traits?.has?.("heavy");
-        // Try to read a rating (system variants differ)
         const heavyRating = Number(heavyTrait?.rating ?? heavyTrait?.value ?? 0);
         const actorStrength = this.actor?.system?.attributes?.strength?.total ?? 0;
 
@@ -201,7 +196,6 @@ function ensureWeaponDialogPatched(app) {
       addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
     }
 
-    // Vision
     const visionKey = fields.visionPenalty;
     const visionPenalty = VISION_PENALTIES[visionKey];
     if (visionPenalty) {
@@ -210,7 +204,6 @@ function ensureWeaponDialogPatched(app) {
       addTooltip("difficulty", penalty ?? 0, visionPenalty.label);
     }
 
-    // Size
     const sizeKey = fields.sizeModifier;
     const sizeModifier = SIZE_MODIFIER_OPTIONS[sizeKey];
     if (sizeModifier) {
@@ -224,7 +217,6 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    // Called shot: Disarm
     if (fields.calledShot?.disarm) {
       if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.calledShotDisarm);
       addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
@@ -234,7 +226,6 @@ function ensureWeaponDialogPatched(app) {
       damageSuppressed = true;
     }
 
-    // Cover (tooltip only; W&G system applies the real math)
     if (fields.cover === "half") addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
     else if (fields.cover === "full") addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
 
@@ -249,21 +240,57 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
+// --- Helper to update visible fields in the UI ------------------------------
+function updateVisibleFields(app, html) {
+  const $html = html instanceof jQuery ? html : $(html);
+  
+  // Update dice pool
+  const poolInput = $html.find('input[name="pool"]');
+  if (poolInput.length && app.fields?.pool !== undefined) {
+    poolInput.val(app.fields.pool);
+  }
+  
+  // Update difficulty
+  const difficultyInput = $html.find('input[name="difficulty"]');
+  if (difficultyInput.length && app.fields?.difficulty !== undefined) {
+    difficultyInput.val(app.fields.difficulty);
+  }
+  
+  // Update damage
+  const damageInput = $html.find('input[name="damage"]');
+  if (damageInput.length && app.fields?.damage !== undefined) {
+    damageInput.val(app.fields.damage);
+  }
+  
+  // Update ED value
+  const edValueInput = $html.find('input[name="ed.value"]');
+  if (edValueInput.length && app.fields?.ed?.value !== undefined) {
+    edValueInput.val(app.fields.ed.value);
+  }
+  
+  // Update ED dice
+  const edDiceInput = $html.find('input[name="ed.dice"]');
+  if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
+    edDiceInput.val(app.fields.ed.dice);
+  }
+}
+
 // --- Single render hook (template-based UI, delegated listeners) -------------
 Hooks.on("renderWeaponDialog", async (app, html) => {
   try {
     if (game.system.id !== "wrath-and-glory") return;
 
-    // Make sure prototype extensions are in place
     ensureWeaponDialogPatched(app);
 
     const $html = html instanceof jQuery ? html : $(html);
 
-    // Anchor
+    // Remove the original Aim and Called Shot controls
+    $html.find('.form-group').has('input[name="aim"]').remove();
+    $html.find('.form-group').has('select[name="calledShot.size"]').remove();
+
     const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
 
-    // Template context
     const ctx = {
       open: app._combatOptionsOpen ?? false,
       isMelee: !!app.weapon?.isMelee,
@@ -272,11 +299,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       fields: foundry.utils.duplicate(app.fields ?? {}),
       labels: {
         allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
-        fullDefence: "Full Defence (+2 Defence / –2 Dice)",
+        fullDefence: "Full Defence (+2 Defence until next turn)",
         charge: "Charge (+1 Die, 2× Speed)",
         grapple: "Grapple (Opposed Strength Test)",
         fallBack: "Fall Back (Disengage safely)",
-        brace: "Brace (ignore Heavy penalty with STR)",
+        brace: "Brace (Negate Heavy trait)",
         pinning: "Suppressing Fire (Pinning)",
         cover: "Cover",
         vision: "Vision",
@@ -289,12 +316,12 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       },
       coverOptions: [
         { value: "",     label: "No Cover" },
-        { value: "half", label: "Half Cover (+1 DN)" },
-        { value: "full", label: "Full Cover (+2 DN)" }
+        { value: "half", label: "Half Cover (+1 Defence)" },
+        { value: "full", label: "Full Cover (+2 Defence)" }
       ],
       visionOptions: [
         { value: "",        label: "Normal" },
-        { value: "twilight",label: "Twilight (+1 DN Ranged / +0 DN Melee)" },
+        { value: "twilight",label: "Twilight (+1 DN Ranged)" },
         { value: "dim",     label: "Dim Light (+2 DN Ranged / +1 DN Melee)" },
         { value: "heavy",   label: "Heavy Fog (+3 DN Ranged / +2 DN Melee)" },
         { value: "darkness",label: "Darkness (+4 DN Ranged / +3 DN Melee)" }
@@ -315,11 +342,20 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       ]
     };
 
-    // Render & inject (idempotent)
+    // Render & inject
     const existing = attackSection.find("[data-co-root]");
     const htmlFrag = await renderTemplate(`${TEMPLATE_BASE_PATH}/combat-options.hbs`, ctx);
-    if (existing.length) existing.replaceWith(htmlFrag);
-    else attackSection.append(htmlFrag);
+    if (existing.length) {
+      existing.replaceWith(htmlFrag);
+    } else {
+      // Insert before the first <hr> if it exists
+      const hr = attackSection.find('hr').first();
+      if (hr.length) {
+        hr.before(htmlFrag);
+      } else {
+        attackSection.append(htmlFrag);
+      }
+    }
 
     // Delegated listeners
     const root = attackSection.find("[data-co-root]");
@@ -330,27 +366,44 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       app._combatOptionsOpen = root.prop("open");
     });
 
-    // Generic input handler
-    root.on("change.combatOptions input.combatOptions", "[data-co]", (ev) => {
+    // Generic input handler - just update fields and recompute, don't submit
+    root.on("change.combatOptions", "[data-co]", (ev) => {
+      ev.stopPropagation();
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
       const fields = app.fields ?? (app.fields = {});
+      
       foundry.utils.setProperty(fields, name, value);
 
-      // Inter-option conflicts
-      if (name === "allOutAttack" && value) foundry.utils.setProperty(app.fields, "fullDefence", false);
-      if (name === "fullDefence"  && value) foundry.utils.setProperty(app.fields, "allOutAttack", false);
+      // Handle conflicts
+      if (name === "allOutAttack" && value) {
+        foundry.utils.setProperty(fields, "fullDefence", false);
+        // Update the checkbox in the UI
+        root.find('input[name="fullDefence"]').prop('checked', false);
+      }
+      if (name === "fullDefence" && value) {
+        foundry.utils.setProperty(fields, "allOutAttack", false);
+        // Update the checkbox in the UI
+        root.find('input[name="allOutAttack"]').prop('checked', false);
+      }
 
       // Show/hide called shot panel
       if (name === "calledShot.enabled") {
         root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
       }
 
-      if (typeof app.submit === "function") app.submit({ preventClose: true });
+      // Recompute fields
+      if (typeof app.computeFields === "function") {
+        app.computeFields();
+      }
+
+      // Update the visible form fields
+      updateVisibleFields(app, $html);
     });
 
   } catch (err) {
     logError("Failed to render combat options", err);
+    console.error(err);
   }
 });
