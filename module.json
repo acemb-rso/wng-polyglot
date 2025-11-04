@@ -15,6 +15,7 @@
 		"verified": "13"
 	},
         "esmodules": ["scripts/combat-options.js"],
+        "styles": ["styles/combat-options.css"],
         "languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
         "templates": [
                 "templates/combat-options.hbs",
