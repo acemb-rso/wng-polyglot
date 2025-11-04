@@ -1,8 +1,9 @@
 // modules/wng-CombatExtender/scripts/combat-options.js
 
 // --- Module path & labels ----------------------------------------------------
-const modulePathMatch = import.meta.url.replace(/\\/g, "/").match(/^(.*\/modules\/([^/]+))\/scripts\//);
-const MODULE_BASE_PATH = modulePathMatch ? modulePathMatch[1] : "";
+const MODULE_ID = "wng-CombatExtender";
+const MODULE_BASE_PATH = `modules/${MODULE_ID}`;
+const TEMPLATE_BASE_PATH = `${MODULE_BASE_PATH}/templates`;
 const MODULE_LABEL = "WNG Combat Extender";
 
 // --- Logging -----------------------------------------------------------------
@@ -45,11 +46,10 @@ const SIZE_MODIFIER_OPTIONS = {
 
 // --- Template preloading & helpers ------------------------------------------
 Hooks.once("init", async () => {
-  const base = MODULE_BASE_PATH;
   await loadTemplates([
-    `${base}/templates/combat-options.hbs`,
-    `${base}/templates/partials/co-checkbox.hbs`,
-    `${base}/templates/partials/co-select.hbs`
+    `${TEMPLATE_BASE_PATH}/combat-options.hbs`,
+    `${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`,
+    `${TEMPLATE_BASE_PATH}/partials/co-select.hbs`
   ]);
 
   Handlebars.registerHelper("t", (s) => String(s));          // passthrough
@@ -241,8 +241,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // Make sure prototype extensions are in place
     ensureWeaponDialogPatched(app);
 
+    const $html = html instanceof jQuery ? html : $(html);
+
     // Anchor
-    const attackSection = html.find(".attack");
+    const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
 
     // Template context
@@ -295,7 +297,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     // Render & inject (idempotent)
     const existing = attackSection.find("[data-co-root]");
-    const htmlFrag = await renderTemplate(`${MODULE_BASE_PATH}/templates/combat-options.hbs`, ctx);
+    const htmlFrag = await renderTemplate(`${TEMPLATE_BASE_PATH}/combat-options.hbs`, ctx);
     if (existing.length) existing.replaceWith(htmlFrag);
     else attackSection.append(htmlFrag);
 
