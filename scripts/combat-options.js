@@ -148,7 +148,27 @@ function ensureWeaponDialogPatched(app) {
       }
     };
 
-    this._combatOptionsBaseFields = foundry.utils.deepClone(currentBase);
+    const hasActiveOptions = Boolean(
+      fields.aim ||
+      fields.charging ||
+      fields.allOutAttack ||
+      fields.grapple ||
+      fields.fallBack ||
+      fields.brace ||
+      fields.pinning ||
+      fields.fullDefence ||
+      fields.pistolsInMelee ||
+      fields.calledShot?.enabled ||
+      fields.calledShot?.disarm ||
+      (fields.calledShot?.size ?? "") !== "" ||
+      (fields.cover ?? "") !== "" ||
+      (fields.sizeModifier ?? "") !== "" ||
+      (fields.visionPenalty ?? "") !== ""
+    );
+
+    if (!this._combatOptionsBaseFields || !hasActiveOptions) {
+      this._combatOptionsBaseFields = foundry.utils.deepClone(currentBase);
+    }
 
     fields.pool = currentBase.pool;
     fields.difficulty = currentBase.difficulty;
