@@ -119,6 +119,16 @@ function ensureWeaponDialogPatched(app) {
   };
 
   prototype.computeFields = function () {
+    const baseFields = this._combatOptionsBaseFields;
+    if (baseFields) {
+      this.fields ??= {};
+      const restored = foundry.utils.deepClone(baseFields);
+      this.fields.pool = restored.pool;
+      this.fields.difficulty = restored.difficulty;
+      this.fields.damage = restored.damage;
+      this.fields.ed = restored.ed;
+    }
+
     originalComputeFields.call(this);
 
     const weapon = this.weapon;
@@ -128,17 +138,32 @@ function ensureWeaponDialogPatched(app) {
     const tooltips = this.tooltips;
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
-    fields.pool = Number(fields.pool ?? 0);
-    fields.difficulty = Number(fields.difficulty ?? 0);
-    fields.ed ??= { value: 0, dice: "" };
+    const currentBase = {
+      pool: Number(fields.pool ?? 0),
+      difficulty: Number(fields.difficulty ?? 0),
+      damage: fields.damage,
+      ed: {
+        value: Number(fields.ed?.value ?? 0),
+        dice: fields.ed?.dice ?? ""
+      }
+    };
+
+    this._combatOptionsBaseFields = foundry.utils.deepClone(currentBase);
+
+    fields.pool = currentBase.pool;
+    fields.difficulty = currentBase.difficulty;
+    fields.damage = currentBase.damage;
+    fields.ed = foundry.utils.deepClone(currentBase.ed);
+
+    if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
     if (fields.allOutAttack && fields.fullDefence) {
       fields.fullDefence = false;
     }
 
-    const baseDamage  = fields.damage;
-    const baseEdValue = fields.ed.value;
-    const baseEdDice  = fields.ed.dice;
+    const baseDamage  = currentBase.damage;
+    const baseEdValue = currentBase.ed.value;
+    const baseEdDice  = currentBase.ed.dice;
     let damageSuppressed = false;
 
     if (weapon?.isMelee) {
