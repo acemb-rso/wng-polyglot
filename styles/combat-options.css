@@ -2,21 +2,32 @@
   margin-bottom: 0.75rem;
   border: 1px solid black;
   border-radius: 4px;
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .warhammer.roll-dialog-v2 details.combat-options > summary {
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   font-weight: 700;
+  font-size: 1rem;
   text-transform: uppercase;
   list-style: none;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  transition: background 0.2s;
 }
 
-.warhammer.roll-dialog-v2 details.combat-options > summary::marker {
-  content: "";
+.warhammer.roll-dialog-v2 details.combat-options > summary:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.warhammer.roll-dialog-v2 details.combat-options > summary::marker,
+.warhammer.roll-dialog-v2 details.combat-options > summary::-webkit-details-marker {
+  display: none;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__icon {
@@ -39,6 +50,10 @@
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__header {
   font-weight: 700;
   text-transform: uppercase;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+  padding-bottom: 0.25rem;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__option {
@@ -47,14 +62,14 @@
   gap: 0.5rem;
 }
 
-.warhammer.roll-dialog-v2 details.combat-options .combat-options__option span {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__option > span {
+  flex: 1;
+  line-height: 1.4;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__option input[type="checkbox"] {
   margin-top: 0.2rem;
+  flex-shrink: 0;
 }
 
 .warhammer.roll-dialog-v2 .combat-options__hidden-inputs {
@@ -62,11 +77,21 @@
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__note {
-  font-size: 0.75rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__note input[type="text"] {
+  width: 100%;
+  padding: 0.25rem;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__note--checkbox {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 0.35rem;
 }
@@ -78,50 +103,83 @@
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__nested {
   display: grid;
   gap: 0.25rem;
-  margin-left: 2rem;
+  margin-left: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__called-shot {
+  display: grid;
+  gap: 0.5rem;
+  margin-left: 1.5rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__option--select {
   align-items: center;
+  flex-wrap: wrap;
 }
 
-.warhammer.roll-dialog-v2 details.combat-options .combat-options__option--select span {
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__option--select > span {
   font-weight: 600;
+  min-width: 80px;
+  flex: 0 0 auto;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options .combat-options__option--select select {
   flex: 1;
+  min-width: 150px;
+}
+
+.warhammer.roll-dialog-v2 details.combat-options .combat-options__option--called-shot {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .warhammer.roll-dialog-v2 details.combat-options[open] .combat-options__content {
-  border-top: 1px solid black;
+  border-top: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 .warhammer.roll-dialog-v2 details.combat-options input:disabled + span {
-  opacity: 0.6;
+  opacity: 0.5;
+  color: #999;
 }
 
+/* Theme-specific styles */
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options {
   border-color: var(--color-border-highlight);
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options > summary {
-  background: var(--color-imperium);
-  color: var(--color-white);
+  background: var(--color-imperium, #8b0000);
+  color: var(--color-white, #fff);
+}
+
+body.wng-theme .warhammer.roll-dialog-v2 details.combat-options > summary:hover {
+  background: var(--color-imperium-dark, #6b0000);
 }
 
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options .combat-options__content {
   background: rgba(0, 0, 0, 0.35);
-  color: var(--color-white);
+  color: var(--color-white, #fff);
 }
 
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options .combat-options__header {
-  color: var(--color-white);
+  color: var(--color-white, #fff);
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+
+body.wng-theme .warhammer.roll-dialog-v2 details.combat-options .combat-options__called-shot {
+  background: rgba(0, 0, 0, 0.2);
 }
 
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options .combat-options__option--select select {
   border: 1px solid var(--color-border-highlight);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--color-white, #fff);
 }
 
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options[open] .combat-options__content {
@@ -132,5 +190,11 @@ body.wng-theme .warhammer.roll-dialog-v2 details.combat-options input:disabled +
   opacity: 0.45;
 }
 
-.combat-options__content.is-collapsed { display: none; }
-.combat-options__called-shot.is-hidden { display: none; }
+/* Utility classes */
+.combat-options__content.is-collapsed { 
+  display: none; 
+}
+
+.combat-options__called-shot.is-hidden { 
+  display: none !important; 
+}
