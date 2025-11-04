@@ -18,8 +18,8 @@ const COMBAT_OPTION_LABELS = {
   fallBack: "Fall Back (Withdraw safely)",
   brace: "Brace (Negate Heavy trait)",
   pinning: "Pinning Attack (No damage, target tests Resolve)",
-  halfCover: "Half Cover (+1 DN)",
-  fullCover: "Full Cover (+2 DN)",
+  halfCover: "Half Cover (+1 Defence)",
+  fullCover: "Full Cover (+2 Defence)",
   pistolsInMelee: "Pistols In Melee (+2 DN to Ballistic Skill)",
   calledShotDisarm: "Disarm (No damage)"
 };
