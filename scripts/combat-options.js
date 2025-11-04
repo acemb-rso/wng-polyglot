@@ -126,22 +126,30 @@ function ensureWeaponDialogPatched(app) {
   };
 
   prototype.computeFields = function () {
-    const baseFields = this._combatOptionsBaseFields;
-    if (baseFields) {
-      this.fields ??= {};
-      const restored = foundry.utils.deepClone(baseFields);
-      this.fields.pool = restored.pool;
-      this.fields.difficulty = restored.difficulty;
-      this.fields.damage = restored.damage;
-      this.fields.ed = restored.ed;
+    const fields = this.fields ?? (this.fields = {});
+
+    const initialSnapshot = this._combatOptionsInitialFields;
+    if (initialSnapshot) {
+      if (initialSnapshot.pool !== undefined) fields.pool = initialSnapshot.pool;
+      if (initialSnapshot.difficulty !== undefined) fields.difficulty = initialSnapshot.difficulty;
+      if (initialSnapshot.damage !== undefined) fields.damage = initialSnapshot.damage;
+      if (initialSnapshot.ed !== undefined) {
+        fields.ed = foundry.utils.deepClone(initialSnapshot.ed);
+      }
     }
+
+    const preCompute = {
+      pool: Number(fields.pool ?? 0),
+      difficulty: Number(fields.difficulty ?? 0),
+      damage: fields.damage,
+      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
+    };
 
     originalComputeFields.call(this);
 
     const weapon = this.weapon;
     if (!weapon) return;
 
-    const fields = this.fields ?? (this.fields = {});
     const tooltips = this.tooltips;
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
@@ -151,47 +159,25 @@ function ensureWeaponDialogPatched(app) {
       fields.pinning = false;
     }
 
-    const currentBase = {
+    const baseSnapshot = {
       pool: Number(fields.pool ?? 0),
       difficulty: Number(fields.difficulty ?? 0),
       damage: fields.damage,
-      ed: {
-        value: Number(fields.ed?.value ?? 0),
-        dice: fields.ed?.dice ?? ""
-      }
+      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
 
-    const hasActiveOptions = Boolean(
-      fields.aim ||
-      fields.charging ||
-      fields.allOutAttack ||
-      fields.grapple ||
-      fields.fallBack ||
-      fields.brace ||
-      (canPinning && fields.pinning) ||
-      fields.pistolsInMelee ||
-      fields.calledShot?.enabled ||
-      fields.disarm ||
-      (fields.calledShot?.size ?? "") !== "" ||
-      (fields.cover ?? "") !== "" ||
-      (fields.sizeModifier ?? "") !== "" ||
-      (fields.visionPenalty ?? "") !== ""
-    );
+    this._combatOptionsInitialFields = foundry.utils.deepClone(preCompute);
+    this._combatOptionsBaseFields = foundry.utils.deepClone(baseSnapshot);
 
-    if (!this._combatOptionsBaseFields || !hasActiveOptions) {
-      this._combatOptionsBaseFields = foundry.utils.deepClone(currentBase);
-    }
-
-    fields.pool = currentBase.pool;
-    fields.difficulty = currentBase.difficulty;
-    fields.damage = currentBase.damage;
-    fields.ed = foundry.utils.deepClone(currentBase.ed);
-
+    fields.pool = baseSnapshot.pool;
+    fields.difficulty = baseSnapshot.difficulty;
+    fields.damage = baseSnapshot.damage;
+    fields.ed = foundry.utils.deepClone(baseSnapshot.ed ?? { value: 0, dice: "" });
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
-    const baseDamage  = currentBase.damage;
-    const baseEdValue = currentBase.ed.value;
-    const baseEdDice  = currentBase.ed.dice;
+    const baseDamage  = fields.damage;
+    const baseEdValue = Number(fields.ed?.value ?? 0);
+    const baseEdDice  = fields.ed?.dice ?? "";
     let damageSuppressed = false;
 
     if (weapon?.isMelee) {
@@ -262,14 +248,23 @@ function ensureWeaponDialogPatched(app) {
       damageSuppressed = true;
     }
 
-    if (fields.cover === "half") addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.halfCover);
-    else if (fields.cover === "full") addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullCover);
+    if (fields.cover === "half") {
+      fields.difficulty += 1;
+      addTooltip("difficulty", 1, COMBAT_OPTION_LABELS.halfCover);
+    } else if (fields.cover === "full") {
+      fields.difficulty += 2;
+      addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.fullCover);
+    }
 
     if (!damageSuppressed) {
       fields.damage  = baseDamage;
       fields.ed.value = baseEdValue;
       fields.ed.dice  = baseEdDice;
     }
+
+    fields.pool = Math.max(0, Number(fields.pool ?? 0));
+    fields.difficulty = Math.max(0, Number(fields.difficulty ?? 0));
+    fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
   };
 
   patchedWeaponDialogPrototypes.add(prototype);
@@ -356,8 +351,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       },
       coverOptions: [
         { value: "",     label: "No Cover" },
-        { value: "half", label: "Half Cover (+1 Defence)" },
-        { value: "full", label: "Full Cover (+2 Defence)" }
+        { value: "half", label: "Half Cover (+1 DN)" },
+        { value: "full", label: "Full Cover (+2 DN)" }
       ],
       visionOptions: [
         { value: "",        label: "Normal" },
@@ -423,6 +418,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       }
 
       // Force complete recalculation
+      app._combatOptionsInitialFields = undefined;
+      app._combatOptionsBaseFields = undefined;
       if (typeof app.computeInitialFields === 'function') {
         app.computeInitialFields();
       }
