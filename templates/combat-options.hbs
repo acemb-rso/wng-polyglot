@@ -38,20 +38,17 @@
         <input data-co type="checkbox" name="brace" {{#if fields.brace}}checked{{/if}} {{#unless hasHeavy}}disabled{{/unless}} />
         <span>{{t labels.brace}}</span>
       </div>
+      {{#if canPinning}}
       <div class="combat-options__option">
         <input data-co type="checkbox" name="pinning" {{#if fields.pinning}}checked{{/if}} />
         <span>{{t labels.pinning}}</span>
       </div>
+      {{/if}}
     </div>
     {{/if}}
 
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.GeneralOptions"}}</div>
-
-      <div class="combat-options__option">
-        <input data-co type="checkbox" name="fullDefence" {{#if fields.fullDefence}}checked{{/if}} />
-        <span>{{t labels.fullDefence}}</span>
-      </div>
 
       <label class="combat-options__option combat-options__option--select">
         <span>{{t labels.cover}}</span>
@@ -86,6 +83,11 @@
         </select>
       </label>
 
+      <div class="combat-options__option">
+        <input data-co type="checkbox" name="disarm" {{#if fields.disarm}}checked{{/if}} />
+        <span>{{t labels.disarm}}</span>
+      </div>
+
       <div class="combat-options__option combat-options__option--called-shot">
         <div class="combat-options__option">
           <input data-co type="checkbox" name="calledShot.enabled" {{#if fields.calledShot.enabled}}checked{{/if}} />
@@ -106,10 +108,6 @@
             <span>{{t labels.calledShotLabel}}</span>
             <input data-co name="calledShot.label" type="text" value="{{fields.calledShot.label}}" placeholder="Label" />
           </label>
-          <div class="combat-options__option">
-            <input data-co type="checkbox" name="calledShot.disarm" {{#if fields.calledShot.disarm}}checked{{/if}} />
-            <span>{{t labels.disarm}}</span>
-          </div>
         </div>
       </div>
     </div>

@@ -18,11 +18,10 @@ const COMBAT_OPTION_LABELS = {
   fallBack: "Fall Back (Withdraw safely)",
   brace: "Brace (Negate Heavy trait)",
   pinning: "Pinning Attack (No damage, target tests Resolve)",
-  fullDefence: "Full Defence (+2 Defence until next turn)",
   halfCover: "Half Cover (+1 Defence)",
   fullCover: "Full Cover (+2 Defence)",
   pistolsInMelee: "Pistols In Melee (+2 DN to Ballistic Skill)",
-  calledShotDisarm: "Shot To Disarm (No damage)"
+  calledShotDisarm: "Disarm (No damage)"
 };
 
 const VISION_PENALTIES = {
@@ -84,15 +83,24 @@ function ensureWeaponDialogPatched(app) {
       full: COMBAT_OPTION_LABELS.fullCover
     };
 
-    const fields = this.fields ?? {};
+    const weapon = this.weapon;
+    const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
+    const canPinning = Boolean(weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
+
+    const fields = this.fields ?? (this.fields = {});
+    if (!canPinning && fields.pinning) {
+      fields.pinning = false;
+    }
+
     context.combatOptionsOpen = Boolean(
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
-      fields.fallBack || fields.brace || fields.pinning || fields.fullDefence ||
+      fields.fallBack || fields.brace || (canPinning && fields.pinning) ||
       fields.cover || fields.pistolsInMelee || fields.sizeModifier || fields.visionPenalty ||
-      fields.calledShot?.enabled || fields.calledShot?.size || fields.calledShot?.disarm
+      fields.disarm || fields.calledShot?.enabled || fields.calledShot?.size
     );
 
-    context.hasHeavyTrait = Boolean(this.weapon?.system?.traits?.has?.("heavy"));
+    context.hasHeavyTrait = Boolean(weapon?.system?.traits?.has?.("heavy"));
+    context.canPinning = canPinning;
     return context;
   };
 
@@ -104,14 +112,13 @@ function ensureWeaponDialogPatched(app) {
       fallBack: false,
       brace: false,
       pinning: false,
-      fullDefence: false,
       cover: "",
       pistolsInMelee: false,
+      disarm: false,
       sizeModifier: "",
       visionPenalty: "",
       calledShot: {
         enabled: false,
-        disarm: false,
         size: "",
         label: ""
       }
@@ -138,6 +145,12 @@ function ensureWeaponDialogPatched(app) {
     const tooltips = this.tooltips;
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
+    const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
+    const canPinning = Boolean(weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
+    if (!canPinning && fields.pinning) {
+      fields.pinning = false;
+    }
+
     const currentBase = {
       pool: Number(fields.pool ?? 0),
       difficulty: Number(fields.difficulty ?? 0),
@@ -155,11 +168,10 @@ function ensureWeaponDialogPatched(app) {
       fields.grapple ||
       fields.fallBack ||
       fields.brace ||
-      fields.pinning ||
-      fields.fullDefence ||
+      (canPinning && fields.pinning) ||
       fields.pistolsInMelee ||
       fields.calledShot?.enabled ||
-      fields.calledShot?.disarm ||
+      fields.disarm ||
       (fields.calledShot?.size ?? "") !== "" ||
       (fields.cover ?? "") !== "" ||
       (fields.sizeModifier ?? "") !== "" ||
@@ -176,10 +188,6 @@ function ensureWeaponDialogPatched(app) {
     fields.ed = foundry.utils.deepClone(currentBase.ed);
 
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
-
-    if (fields.allOutAttack && fields.fullDefence) {
-      fields.fullDefence = false;
-    }
 
     const baseDamage  = currentBase.damage;
     const baseEdValue = currentBase.ed.value;
@@ -209,7 +217,7 @@ function ensureWeaponDialogPatched(app) {
         }
       }
 
-      if (fields.pinning) {
+      if (canPinning && fields.pinning) {
         if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
         fields.damage = 0;
         fields.ed.value = 0;
@@ -222,10 +230,6 @@ function ensureWeaponDialogPatched(app) {
         fields.difficulty += 2;
         addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
       }
-    }
-
-    if (fields.fullDefence) {
-      addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fullDefence);
     }
 
     const visionKey = fields.visionPenalty;
@@ -249,7 +253,7 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    if (fields.calledShot?.disarm) {
+    if (fields.disarm) {
       if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.calledShotDisarm);
       addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
       fields.damage = 0;
@@ -325,15 +329,18 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       app._initialFieldsComputed = true;
     }
 
+    const salvoValue = Number(app.weapon?.system?.salvo ?? app.weapon?.salvo ?? 0);
+    const canPinning = Boolean(app.weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
+
     const ctx = {
       open: app._combatOptionsOpen ?? false,
       isMelee: !!app.weapon?.isMelee,
       isRanged: !!app.weapon?.isRanged,
       hasHeavy: !!app.weapon?.system?.traits?.has?.("heavy"),
+      canPinning,
       fields: foundry.utils.duplicate(app.fields ?? {}),
       labels: {
         allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
-        fullDefence: "Full Defence (+2 Defence until next turn)",
         charge: "Charge (+1 Die, 2× Speed)",
         grapple: "Grapple (Opposed Strength Test)",
         fallBack: "Fall Back (Disengage safely)",
@@ -345,7 +352,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         calledShot: "Called Shot",
         calledShotSize: "Target Size",
         calledShotLabel: "Label",
-        disarm: "Disarm (0 Damage)"
+        disarm: "Disarm (No damage)"
       },
       coverOptions: [
         { value: "",     label: "No Cover" },
@@ -375,6 +382,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       ]
     };
 
+    if (!canPinning) {
+      foundry.utils.setProperty(ctx.fields, "pinning", false);
+    }
+
     const existing = attackSection.find("[data-co-root]");
     const htmlFrag = await renderTemplate(`${TEMPLATE_BASE_PATH}/combat-options.hbs`, ctx);
     if (existing.length) {
@@ -389,6 +400,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     }
 
     const root = attackSection.find("[data-co-root]");
+    if (!canPinning) {
+      foundry.utils.setProperty(app.fields ?? (app.fields = {}), "pinning", false);
+    }
     root.off(".combatOptions");
 
     root.on("toggle.combatOptions", () => {
@@ -403,15 +417,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const fields = app.fields ?? (app.fields = {});
       
       foundry.utils.setProperty(fields, name, value);
-
-      if (name === "allOutAttack" && value) {
-        foundry.utils.setProperty(fields, "fullDefence", false);
-        root.find('input[name="fullDefence"]').prop('checked', false);
-      }
-      if (name === "fullDefence" && value) {
-        foundry.utils.setProperty(fields, "allOutAttack", false);
-        root.find('input[name="allOutAttack"]').prop('checked', false);
-      }
 
       if (name === "calledShot.enabled") {
         root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
