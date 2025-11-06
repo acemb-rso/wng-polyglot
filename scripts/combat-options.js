@@ -1000,13 +1000,14 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     };
 
     const actor = app.actor ?? app.token?.actor;
+    const fields = app.fields ?? (app.fields = {});
     const disableAllOutAttack = Boolean(actor?.statuses?.has?.("full-defence"));
 
-    const previousAllOutAttack = foundry.utils.getProperty(app.fields ?? (app.fields = {}), "allOutAttack");
+    const previousAllOutAttack = foundry.utils.getProperty(fields, "allOutAttack");
 
     if (disableAllOutAttack) {
       foundry.utils.setProperty(ctx.fields, "allOutAttack", false);
-      foundry.utils.setProperty(app.fields, "allOutAttack", false);
+      foundry.utils.setProperty(fields, "allOutAttack", false);
     }
 
     ctx.disableAllOutAttack = disableAllOutAttack;
@@ -1029,15 +1030,21 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       app._combatOptionsCoverTargetId = currentTargetId;
     }
 
+    let shouldRecompute = false;
     const defaultCover = getTargetCover(app);
+    const normalizedDefaultCover = defaultCover ?? "";
     app._combatOptionsDefaultCover = defaultCover;
     const currentCover = ctx.fields.cover ?? "";
-    if (app._combatOptionsCoverOverride && currentCover === defaultCover) {
+    if (app._combatOptionsCoverOverride && currentCover === normalizedDefaultCover) {
       app._combatOptionsCoverOverride = false;
     }
     if (!app._combatOptionsCoverOverride) {
-      ctx.fields.cover = defaultCover;
-      foundry.utils.setProperty(app.fields ?? (app.fields = {}), "cover", defaultCover);
+      const previousCover = (foundry.utils.getProperty(fields, "cover") ?? "");
+      if (previousCover !== normalizedDefaultCover) {
+        shouldRecompute = true;
+      }
+      ctx.fields.cover = normalizedDefaultCover;
+      foundry.utils.setProperty(fields, "cover", normalizedDefaultCover);
     }
 
     const defaultSize = app._combatOptionsDefaultSizeModifier ?? getTargetSize(app);
@@ -1048,7 +1055,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     }
     if (!app._combatOptionsSizeOverride) {
       ctx.fields.sizeModifier = defaultFieldValue;
-      foundry.utils.setProperty(app.fields ?? (app.fields = {}), "sizeModifier", defaultFieldValue);
+      foundry.utils.setProperty(fields, "sizeModifier", defaultFieldValue);
     }
 
     // When the weapon cannot perform pinning attacks we proactively disable the checkbox
@@ -1072,11 +1079,18 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const root = attackSection.find("[data-co-root]");
     if (!canPinning) {
-      foundry.utils.setProperty(app.fields ?? (app.fields = {}), "pinning", false);
+      foundry.utils.setProperty(fields, "pinning", false);
     }
     // Remove any lingering listeners before wiring new ones to avoid duplicate handlers
     // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
+
+    if (shouldRecompute) {
+      if (typeof app.computeFields === 'function') {
+        app.computeFields();
+      }
+      updateVisibleFields(app, $html);
+    }
 
     // Remember whether the section is expanded so the dialog can restore the state when
     // it is reopened during the same session.
