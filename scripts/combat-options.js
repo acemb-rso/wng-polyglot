@@ -96,6 +96,82 @@ function getTargetSize(dialog) {
   return normalizeSizeKey(size);
 }
 
+function getTargetIdentifier(dialog) {
+  const target = dialog?.data?.targets?.[0];
+  if (!target) return null;
+  return target?.document?.id ?? target?.id ?? target?.token?.id ?? null;
+}
+
+function actorHasStatus(actor, statusId) {
+  if (!actor) return false;
+  if (typeof actor.hasCondition === "function") {
+    return Boolean(actor.hasCondition(statusId));
+  }
+  if (actor.statuses?.has?.(statusId)) return true;
+
+  const effects = actor.effects;
+  if (Array.isArray(effects)) {
+    return effects.some((effect) => effect?.statuses?.has?.(statusId));
+  }
+
+  return false;
+}
+
+function getTargetCover(dialog) {
+  const target = dialog?.data?.targets?.[0];
+  const actor = target?.actor ?? target?.document?.actor;
+  if (!actor) return "";
+
+  if (actorHasStatus(actor, "fullCover")) return "full";
+  if (actorHasStatus(actor, "halfCover")) return "half";
+
+  return "";
+}
+
+async function syncAllOutAttackCondition(actor, enabled) {
+  if (!actor || game.system?.id !== "wrath-and-glory") return;
+
+  if (enabled) {
+    if (typeof actor.addCondition !== "function") return;
+    try {
+      await actor.addCondition("all-out-attack", { [MODULE_ID]: { source: "combat-options" } });
+    } catch (err) {
+      logError("Failed to add All-Out Attack condition", err);
+    }
+    return;
+  }
+
+  if (typeof actor.removeCondition !== "function") return;
+  try {
+    await actor.removeCondition("all-out-attack");
+  } catch (err) {
+    logError("Failed to remove All-Out Attack condition", err);
+  }
+}
+
+async function removeAllOutAttackFromActor(actor) {
+  if (!actor || game.system?.id !== "wrath-and-glory") return;
+  if (!actorHasStatus(actor, "all-out-attack")) return;
+
+  if (typeof actor.removeCondition === "function") {
+    try {
+      await actor.removeCondition("all-out-attack");
+    } catch (err) {
+      logError("Failed to remove All-Out Attack condition", err);
+    }
+    return;
+  }
+
+  const effect = actor.effects?.find?.((entry) => entry?.statuses?.has?.("all-out-attack"));
+  if (effect && typeof effect.delete === "function") {
+    try {
+      await effect.delete();
+    } catch (err) {
+      logError("Failed to delete All-Out Attack effect", err);
+    }
+  }
+}
+
 function sanitizePersistentDamageValue(value) {
   const num = Number(value);
   if (Number.isNaN(num) || !Number.isFinite(num)) return 0;
@@ -334,12 +410,27 @@ Hooks.on("updateCombat", (combat, changed) => {
   promptPendingPersistentDamage(combat);
 });
 
-Hooks.on("deleteCombat", (combat) => {
+Hooks.on("deleteCombat", async (combat) => {
   cleanupPendingPersistentDamageForCombat(combat?.id);
+  if (game.system?.id === "wrath-and-glory") {
+    const combatants = combat?.combatants ?? [];
+    for (const combatant of combatants) {
+      await removeAllOutAttackFromActor(combatant?.actor);
+    }
+  }
 });
 
-Hooks.on("deleteCombatant", (combatant) => {
+Hooks.on("deleteCombatant", async (combatant) => {
   cleanupPendingPersistentDamageForCombatant(combatant);
+  if (game.system?.id === "wrath-and-glory") {
+    await removeAllOutAttackFromActor(combatant?.actor);
+  }
+});
+
+Hooks.on("combatTurn", async (combat) => {
+  if (game.system?.id !== "wrath-and-glory") return;
+  const actor = combat?.combatant?.actor;
+  await removeAllOutAttackFromActor(actor);
 });
 
 Hooks.once("init", async () => {
@@ -802,6 +893,23 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       updateVisibleFields(app, $html);
     }
 
+    const currentTargetId = getTargetIdentifier(app);
+    if (app._combatOptionsCoverTargetId !== currentTargetId) {
+      app._combatOptionsCoverOverride = false;
+      app._combatOptionsCoverTargetId = currentTargetId;
+    }
+
+    const defaultCover = getTargetCover(app);
+    app._combatOptionsDefaultCover = defaultCover;
+    const currentCover = ctx.fields.cover ?? "";
+    if (app._combatOptionsCoverOverride && currentCover === defaultCover) {
+      app._combatOptionsCoverOverride = false;
+    }
+    if (!app._combatOptionsCoverOverride) {
+      ctx.fields.cover = defaultCover;
+      foundry.utils.setProperty(app.fields ?? (app.fields = {}), "cover", defaultCover);
+    }
+
     const defaultSize = app._combatOptionsDefaultSizeModifier ?? getTargetSize(app);
     app._combatOptionsDefaultSizeModifier = defaultSize;
     const defaultFieldValue = defaultSize === "average" ? "" : defaultSize;
@@ -848,7 +956,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     // Delegate change events so that dynamically re-rendered controls stay wired without
     // re-attaching listeners to each element individually.
-    root.on("change.combatOptions", "[data-co]", (ev) => {
+    root.on("change.combatOptions", "[data-co]", async (ev) => {
       ev.stopPropagation();
       const el = ev.currentTarget;
       const name = el.name;
@@ -860,6 +968,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       if (name === "allOutAttack" && disableAllOutAttack) {
         foundry.utils.setProperty(fields, "allOutAttack", false);
         root.find('input[name="allOutAttack"]').prop("checked", false);
+        return;
       }
 
       // Once the player manually selects a size modifier we keep their choice instead of
@@ -868,10 +977,18 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         app._combatOptionsSizeOverride = true;
       }
 
+      if (name === "cover") {
+        app._combatOptionsCoverOverride = true;
+      }
+
       // Toggle the visibility of the called shot sub-form so that the dialog only shows
       // the additional inputs when the option is active.
       if (name === "calledShot.enabled") {
         root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
+      }
+
+      if (name === "allOutAttack" && !disableAllOutAttack) {
+        await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
       // Force a complete recalculation so the system re-applies weapon stats before we
