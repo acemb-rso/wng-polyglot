@@ -176,6 +176,58 @@ function isActivePrimaryGM() {
   return activeGM.id === game.user.id;
 }
 
+function shouldHandlePersistentDamage() {
+  return game.system?.id === "wrath-and-glory" && isActivePrimaryGM();
+}
+
+const pendingPersistentDamageCombatants = new Map();
+
+function isTurnChangeUpdate(changed) {
+  if (!changed) return false;
+  return ["turn", "combatantId", "round"].some((key) => Object.prototype.hasOwnProperty.call(changed, key));
+}
+
+function markPendingPersistentDamage(combat, changed) {
+  if (!combat || !isTurnChangeUpdate(changed)) return;
+  const currentCombatant = combat.combatant;
+  if (!currentCombatant?.id) return;
+  pendingPersistentDamageCombatants.set(combat.id, currentCombatant.id);
+}
+
+function promptPendingPersistentDamage(combat) {
+  if (!combat) return;
+  const pendingId = pendingPersistentDamageCombatants.get(combat.id);
+  if (!pendingId) return;
+  pendingPersistentDamageCombatants.delete(combat.id);
+
+  const previousCombatant = typeof combat.combatants?.get === "function"
+    ? combat.combatants.get(pendingId)
+    : combat.combatants?.find?.((c) => c?.id === pendingId);
+
+  if (!previousCombatant) return;
+
+  const maybePromise = promptPersistentDamageAtTurnEnd(previousCombatant);
+  if (maybePromise?.catch) {
+    maybePromise.catch((err) => logError("Failed to prompt for persistent damage", err));
+  }
+}
+
+function cleanupPendingPersistentDamageForCombat(combatId) {
+  if (!combatId) return;
+  pendingPersistentDamageCombatants.delete(combatId);
+}
+
+function cleanupPendingPersistentDamageForCombatant(combatant) {
+  const parentCombat = combatant?.parent;
+  const combatId = parentCombat?.id;
+  if (!combatId) return;
+
+  const pendingId = pendingPersistentDamageCombatants.get(combatId);
+  if (pendingId && pendingId === combatant.id) {
+    pendingPersistentDamageCombatants.delete(combatId);
+  }
+}
+
 async function promptPersistentDamageAtTurnEnd(combatant) {
   const actor = combatant?.actor;
   if (!actor || typeof actor.hasCondition !== "function") return;
@@ -260,15 +312,27 @@ async function promptPersistentDamageAtTurnEnd(combatant) {
   }).render(true);
 }
 
-Hooks.on("combatTurnEnd", (combat, combatant) => {
-  if (game.system.id !== "wrath-and-glory") return;
-  if (!isActivePrimaryGM()) return;
-  if (!combatant) return;
+Hooks.on("preUpdateCombat", (combat, changed) => {
+  if (!shouldHandlePersistentDamage()) return;
+  markPendingPersistentDamage(combat, changed);
+});
 
-  const maybePromise = promptPersistentDamageAtTurnEnd(combatant);
-  if (maybePromise?.catch) {
-    maybePromise.catch((err) => logError("Failed to prompt for persistent damage", err));
-  }
+Hooks.on("combatTurn", (combat) => {
+  if (!shouldHandlePersistentDamage()) return;
+  promptPendingPersistentDamage(combat);
+});
+
+Hooks.on("updateCombat", (combat, changed) => {
+  if (!shouldHandlePersistentDamage() || !isTurnChangeUpdate(changed)) return;
+  promptPendingPersistentDamage(combat);
+});
+
+Hooks.on("deleteCombat", (combat) => {
+  cleanupPendingPersistentDamageForCombat(combat?.id);
+});
+
+Hooks.on("deleteCombatant", (combatant) => {
+  cleanupPendingPersistentDamageForCombatant(combatant);
 });
 
 Hooks.once("init", async () => {
