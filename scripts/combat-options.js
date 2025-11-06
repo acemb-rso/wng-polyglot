@@ -78,6 +78,13 @@ const PERSISTENT_DAMAGE_CONDITIONS = {
   }
 };
 
+const SLOWED_CONDITIONS = [
+  { id: "exhausted", labelKey: "CONDITION.Exhausted" },
+  { id: "hindered", labelKey: "CONDITION.Hindered" },
+  { id: "restrained", labelKey: "CONDITION.Restrained" },
+  { id: "staggered", labelKey: "CONDITION.Staggered" }
+];
+
 function normalizeSizeKey(size) {
   if (!size) return "average";
   const key = String(size).trim().toLowerCase();
@@ -395,12 +402,135 @@ async function promptPersistentDamageAtTurnEnd(combatant) {
   }).render(true);
 }
 
+function shouldNotifySlowedConditions() {
+  return game.system?.id === "wrath-and-glory" && isActivePrimaryGM();
+}
+
+function collectSlowedConditions(actor) {
+  if (!actor || typeof actor.hasCondition !== "function") return [];
+
+  const active = [];
+  for (const config of SLOWED_CONDITIONS) {
+    if (!config?.id) continue;
+    const effect = actor.hasCondition(config.id);
+    if (!effect) continue;
+
+    const label = config.labelKey ? game.i18n.localize(config.labelKey) : config.id;
+    active.push({ id: config.id, label });
+  }
+
+  return active;
+}
+
+function formatLocalizedList(items) {
+  if (!Array.isArray(items) || !items.length) return "";
+
+  if (typeof Intl?.ListFormat === "function") {
+    try {
+      const formatter = new Intl.ListFormat(game?.i18n?.lang ?? "en", { style: "long", type: "conjunction" });
+      return formatter.format(items);
+    } catch (err) {
+      // Browsers without Intl.ListFormat support fall back to the manual branch below.
+    }
+  }
+
+  if (items.length === 1) return items[0];
+  if (items.length === 2) {
+    const conjunction = game?.i18n?.localize?.("WNG.Common.And") ?? "and";
+    return `${items[0]} ${conjunction} ${items[1]}`;
+  }
+
+  const conjunction = game?.i18n?.localize?.("WNG.Common.And") ?? "and";
+  const head = items.slice(0, -1).join(", ");
+  const tail = items[items.length - 1];
+  return `${head}, ${conjunction} ${tail}`;
+}
+
+function getSlowedNotificationRecipients(actor) {
+  if (!actor) return [];
+
+  const users = Array.isArray(game?.users) ? game.users : [];
+  const canTestPermission = typeof actor.testUserPermission === "function";
+  const recipients = new Set();
+
+  for (const user of users) {
+    if (!user) continue;
+    if (user.isGM) {
+      recipients.add(user.id);
+      continue;
+    }
+
+    if (!canTestPermission) continue;
+    try {
+      if (actor.testUserPermission(user, "OWNER")) {
+        recipients.add(user.id);
+      }
+    } catch (err) {
+      logError("Failed to evaluate slowed condition permissions", err);
+    }
+  }
+
+  return Array.from(recipients);
+}
+
+function notifySlowedConditions(combat) {
+  if (!shouldNotifySlowedConditions()) return;
+  const combatant = combat?.combatant;
+  const actor = combatant?.actor;
+  if (!actor) return;
+
+  const slowedConditions = collectSlowedConditions(actor);
+  if (!slowedConditions.length) return;
+
+  const rawName = actor.name ?? combatant.name ?? game.i18n.localize("WNG.SlowedConditions.UnknownName");
+  const safeName = foundry.utils.escapeHTML(rawName);
+  const conditionLabels = slowedConditions.map((entry) => foundry.utils.escapeHTML(entry.label ?? entry.id));
+  const conditionsText = formatLocalizedList(conditionLabels);
+
+  const activeTokens = typeof actor.getActiveTokens === "function" ? actor.getActiveTokens() : [];
+  const combatantToken = combatant.token ?? null;
+  const tokenDocument = combatantToken ?? activeTokens[0]?.document ?? null;
+  const tokenObject = combatantToken?.object ?? activeTokens[0] ?? null;
+  const speakerData = {
+    actor,
+    token: tokenObject ?? tokenDocument ?? undefined,
+    scene: combat?.scene?.id ?? tokenDocument?.parent?.id
+  };
+
+  const message = game.i18n.format("WNG.SlowedConditions.ChatReminder", {
+    name: safeName,
+    conditions: conditionsText
+  });
+
+  const recipients = getSlowedNotificationRecipients(actor);
+  const messageData = {
+    content: `<p>${message}</p>`,
+    speaker: ChatMessage.getSpeaker(speakerData) ?? undefined,
+    flags: {
+      [MODULE_ID]: {
+        slowedReminder: true,
+        conditions: slowedConditions.map((entry) => entry.id)
+      }
+    }
+  };
+
+  if (recipients.length) {
+    messageData.whisper = recipients;
+  }
+
+  const maybePromise = ChatMessage.create(messageData);
+  if (maybePromise?.catch) {
+    maybePromise.catch((err) => logError("Failed to create slowed reminder chat message", err));
+  }
+}
+
 Hooks.on("preUpdateCombat", (combat, changed) => {
   if (!shouldHandlePersistentDamage()) return;
   markPendingPersistentDamage(combat, changed);
 });
 
 Hooks.on("combatTurn", (combat) => {
+  notifySlowedConditions(combat);
   if (!shouldHandlePersistentDamage()) return;
   promptPendingPersistentDamage(combat);
 });

@@ -11,5 +11,8 @@
   "WNG.PersistentDamage.Skip": "Skip",
   "WNG.PersistentDamage.SourceLine": "{condition}: {amount} Mortal Wounds",
   "WNG.PersistentDamage.SourceLineWithFormula": "{condition}: {amount} Mortal Wounds ({formula} → {result})",
-  "WNG.PersistentDamage.ChatFallback": "{name} suffers {amount} Mortal Wounds from persistent damage."
+  "WNG.PersistentDamage.ChatFallback": "{name} suffers {amount} Mortal Wounds from persistent damage.",
+  "WNG.Common.And": "and",
+  "WNG.SlowedConditions.ChatReminder": "{name} is slowed by {conditions}.",
+  "WNG.SlowedConditions.UnknownName": "this combatant"
 }
