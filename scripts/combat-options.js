@@ -65,6 +65,19 @@ const SIZE_MODIFIER_OPTIONS = {
 // the declared options.
 const SIZE_OPTION_KEYS = new Set(Object.keys(SIZE_MODIFIER_OPTIONS));
 
+const PERSISTENT_DAMAGE_CONDITIONS = {
+  onfire: {
+    id: "onfire",
+    labelKey: "CONDITION.OnFire",
+    default: { formula: "1d3" }
+  },
+  bleeding: {
+    id: "bleeding",
+    labelKey: "CONDITION.Bleeding",
+    default: { amount: 1 }
+  }
+};
+
 function normalizeSizeKey(size) {
   if (!size) return "average";
   const key = String(size).trim().toLowerCase();
@@ -82,6 +95,181 @@ function getTargetSize(dialog) {
   const size = actor.system?.combat?.size ?? actor.system?.size ?? actor.size;
   return normalizeSizeKey(size);
 }
+
+function sanitizePersistentDamageValue(value) {
+  const num = Number(value);
+  if (Number.isNaN(num) || !Number.isFinite(num)) return 0;
+  return Math.max(0, Math.floor(num));
+}
+
+function extractPersistentDamageOverride(effect) {
+  const systemId = game.system?.id;
+  if (!effect || typeof effect.getFlag !== "function" || !systemId) return null;
+
+  const flags = effect.getFlag(systemId, "value");
+  if (flags !== undefined && flags !== null && flags !== "") {
+    return flags;
+  }
+
+  if (effect.specifier !== undefined && effect.specifier !== null && effect.specifier !== "") {
+    return effect.specifier;
+  }
+
+  return null;
+}
+
+async function evaluatePersistentDamage(effect, conditionConfig) {
+  if (!effect || !conditionConfig) return null;
+
+  const label = conditionConfig.labelKey ? game.i18n.localize(conditionConfig.labelKey) : (effect.name ?? conditionConfig.id);
+  const override = extractPersistentDamageOverride(effect);
+  let detail = null;
+  let amount;
+
+  const defaultConfig = conditionConfig.default ?? {};
+
+  if (typeof override === "string") {
+    const formula = override.trim();
+    if (formula) {
+      try {
+        const roll = await (new Roll(formula)).evaluate({ async: true });
+        amount = roll.total ?? 0;
+        detail = { formula: roll.formula ?? formula, total: roll.total ?? 0 };
+      } catch (err) {
+        logError(`Failed to evaluate persistent damage formula "${formula}" for ${label}`, err);
+        amount = defaultConfig.amount ?? 0;
+      }
+    }
+  } else if (override !== null) {
+    amount = override;
+  }
+
+  if (amount === undefined) {
+    if (defaultConfig.formula) {
+      try {
+        const roll = await (new Roll(defaultConfig.formula)).evaluate({ async: true });
+        amount = roll.total ?? 0;
+        detail = { formula: roll.formula ?? defaultConfig.formula, total: roll.total ?? 0 };
+      } catch (err) {
+        logError(`Failed to evaluate persistent damage formula "${defaultConfig.formula}" for ${label}`, err);
+        amount = defaultConfig.amount ?? 0;
+      }
+    } else {
+      amount = defaultConfig.amount ?? 0;
+    }
+  }
+
+  const normalizedAmount = sanitizePersistentDamageValue(amount);
+  return {
+    conditionId: conditionConfig.id,
+    label,
+    amount: normalizedAmount,
+    detail,
+    effect
+  };
+}
+
+function isActivePrimaryGM() {
+  if (!game?.user?.isGM) return false;
+  const activeGM = game.users?.activeGM;
+  if (!activeGM) return true;
+  return activeGM.id === game.user.id;
+}
+
+async function promptPersistentDamageAtTurnEnd(combatant) {
+  const actor = combatant?.actor;
+  if (!actor || typeof actor.hasCondition !== "function") return;
+
+  const entries = [];
+  for (const key of Object.keys(PERSISTENT_DAMAGE_CONDITIONS)) {
+    const config = PERSISTENT_DAMAGE_CONDITIONS[key];
+    const effect = actor.hasCondition(config.id);
+    if (!effect) continue;
+    const evaluation = await evaluatePersistentDamage(effect, config);
+    if (evaluation) entries.push(evaluation);
+  }
+
+  if (!entries.length) return;
+
+  const total = sanitizePersistentDamageValue(entries.reduce((sum, entry) => sum + (entry?.amount ?? 0), 0));
+  const listItems = entries.map((entry) => {
+    const label = foundry.utils.escapeHTML(entry.label ?? entry.conditionId);
+    if (entry.detail && entry.detail.formula) {
+      const formula = foundry.utils.escapeHTML(String(entry.detail.formula));
+      const result = foundry.utils.escapeHTML(String(entry.detail.total ?? entry.amount));
+      return `<li>${game.i18n.format("WNG.PersistentDamage.SourceLineWithFormula", { condition: label, amount: entry.amount, formula, result })}</li>`;
+    }
+    return `<li>${game.i18n.format("WNG.PersistentDamage.SourceLine", { condition: label, amount: entry.amount })}</li>`;
+  }).join("");
+
+  const content = `
+    <p>${game.i18n.format("WNG.PersistentDamage.DialogBody", { name: foundry.utils.escapeHTML(actor.name ?? combatant.name ?? "") })}</p>
+    <ul>${listItems}</ul>
+    <div class="form-group">
+      <label>${game.i18n.localize("WNG.PersistentDamage.TotalLabel")}</label>
+      <input type="number" name="persistent-damage" value="${total}" min="0" step="1" />
+    </div>
+    <p class="notes">${game.i18n.localize("WNG.PersistentDamage.ModifyHint")}</p>
+  `;
+
+  const activeTokens = typeof actor.getActiveTokens === "function" ? actor.getActiveTokens() : [];
+  const combatantToken = combatant.token ?? null;
+  const tokenDocument = combatantToken ?? activeTokens[0]?.document ?? null;
+  const tokenObject = combatantToken?.object ?? activeTokens[0] ?? null;
+  const tokenForActions = tokenObject ?? tokenDocument ?? undefined;
+  const speakerData = { actor, token: tokenObject ?? tokenDocument ?? undefined };
+
+  new Dialog({
+    title: game.i18n.localize("WNG.PersistentDamage.DialogTitle"),
+    content,
+    buttons: {
+      apply: {
+        label: game.i18n.localize("WNG.PersistentDamage.Apply"),
+        icon: "<i class=\"fas fa-burn\"></i>",
+        callback: async (html) => {
+          const element = html instanceof jQuery ? html[0] : html;
+          const input = element?.querySelector?.('[name="persistent-damage"]') ?? (html instanceof jQuery ? html.find('[name="persistent-damage"]').get(0) : null);
+          const value = input?.value ?? input?.dataset?.value;
+          const mortal = sanitizePersistentDamageValue(value ?? total);
+          if (mortal <= 0) return;
+
+          const report = await actor.applyDamage(0, { mortal }, { token: tokenForActions });
+          if (!report) return;
+
+          const tooltip = report.breakdown ?? "";
+          const fallbackName = foundry.utils.escapeHTML(actor.name ?? combatant.name ?? "");
+          const message = report.message ?? game.i18n.format("WNG.PersistentDamage.ChatFallback", { name: fallbackName, amount: mortal });
+          await ChatMessage.create({
+            content: `<p data-tooltip-direction="LEFT" data-tooltip="${tooltip}">${message}</p>`,
+            speaker: ChatMessage.getSpeaker(speakerData) ?? undefined,
+            flags: {
+              [MODULE_ID]: {
+                persistentDamage: true,
+                conditions: entries.map((entry) => entry.conditionId)
+              }
+            }
+          });
+        }
+      },
+      skip: {
+        label: game.i18n.localize("WNG.PersistentDamage.Skip"),
+        icon: "<i class=\"fas fa-times\"></i>"
+      }
+    },
+    default: "apply"
+  }).render(true);
+}
+
+Hooks.on("combatTurnEnd", (combat, combatant) => {
+  if (game.system.id !== "wrath-and-glory") return;
+  if (!isActivePrimaryGM()) return;
+  if (!combatant) return;
+
+  const maybePromise = promptPersistentDamageAtTurnEnd(combatant);
+  if (maybePromise?.catch) {
+    maybePromise.catch((err) => logError("Failed to prompt for persistent damage", err));
+  }
+});
 
 Hooks.once("init", async () => {
   // Preload templates to avoid render-time disk access. Foundry caches the compiled

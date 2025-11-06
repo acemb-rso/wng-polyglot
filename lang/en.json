@@ -2,5 +2,14 @@
   "WNG.CombatOptions": "Combat Options",
   "WNG.MeleeOptions": "Melee",
   "WNG.RangedOptions": "Ranged",
-  "WNG.GeneralOptions": "General"
+  "WNG.GeneralOptions": "General",
+  "WNG.PersistentDamage.DialogTitle": "Apply Persistent Damage",
+  "WNG.PersistentDamage.DialogBody": "{name} suffers persistent damage from:",
+  "WNG.PersistentDamage.TotalLabel": "Mortal wounds to apply",
+  "WNG.PersistentDamage.ModifyHint": "Adjust the value before applying if circumstances change the damage.",
+  "WNG.PersistentDamage.Apply": "Apply Damage",
+  "WNG.PersistentDamage.Skip": "Skip",
+  "WNG.PersistentDamage.SourceLine": "{condition}: {amount} Mortal Wounds",
+  "WNG.PersistentDamage.SourceLineWithFormula": "{condition}: {amount} Mortal Wounds ({formula} → {result})",
+  "WNG.PersistentDamage.ChatFallback": "{name} suffers {amount} Mortal Wounds from persistent damage."
 }
