@@ -191,7 +191,14 @@ function markPendingPersistentDamage(combat, changed) {
   if (!combat || !isTurnChangeUpdate(changed)) return;
   const currentCombatant = combat.combatant;
   if (!currentCombatant?.id) return;
+  const actor = currentCombatant.actor;
+  if (!actorHasPersistentDamage(actor)) return;
   pendingPersistentDamageCombatants.set(combat.id, currentCombatant.id);
+}
+
+function actorHasPersistentDamage(actor) {
+  if (!actor || typeof actor.hasCondition !== "function") return false;
+  return Object.values(PERSISTENT_DAMAGE_CONDITIONS).some((config) => actor.hasCondition(config.id));
 }
 
 function promptPendingPersistentDamage(combat) {
