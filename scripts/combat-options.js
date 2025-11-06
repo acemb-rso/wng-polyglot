@@ -279,7 +279,10 @@ function ensureWeaponDialogPatched(app) {
       fields.sizeModifier = defaultFieldValue;
     }
 
-    const baseSizeModifier = SIZE_MODIFIER_OPTIONS[defaultSize];
+    const baseSizeKey = this._combatOptionsSizeOverride
+      ? normalizeSizeKey(fields.sizeModifier)
+      : defaultSize;
+    const baseSizeModifier = SIZE_MODIFIER_OPTIONS[baseSizeKey];
     if (baseSizeModifier) {
       if (baseSizeModifier.pool) {
         baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - baseSizeModifier.pool);
