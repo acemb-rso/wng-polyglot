@@ -40,6 +40,24 @@ const SIZE_MODIFIER_OPTIONS = {
   gargantuan:  { label: "Gargantuan Target (+3 Dice)", pool: 3 }
 };
 
+const SIZE_OPTION_KEYS = new Set(Object.keys(SIZE_MODIFIER_OPTIONS));
+
+function normalizeSizeKey(size) {
+  if (!size) return "average";
+  const key = String(size).trim().toLowerCase();
+  if (!key) return "average";
+  return SIZE_OPTION_KEYS.has(key) ? key : "average";
+}
+
+function getTargetSize(dialog) {
+  const target = dialog?.data?.targets?.[0];
+  const actor = target?.actor ?? target?.document?.actor;
+  if (!actor) return "average";
+
+  const size = actor.system?.combat?.size ?? actor.system?.size ?? actor.size;
+  return normalizeSizeKey(size);
+}
+
 Hooks.once("init", async () => {
   await loadTemplates([
     `${TEMPLATE_BASE_PATH}/combat-options.hbs`,
@@ -145,12 +163,26 @@ function ensureWeaponDialogPatched(app) {
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
 
-    originalComputeFields.call(this);
+    const tooltips = this.tooltips;
+    let restoreTargetSizeTooltip;
+    if (tooltips && typeof tooltips.finish === "function") {
+      const originalFinish = tooltips.finish;
+      tooltips.finish = function (...args) {
+        if (args?.[1] === "Target Size") return;
+        return originalFinish.apply(this, args);
+      };
+      restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
+    }
+
+    try {
+      originalComputeFields.call(this);
+    } finally {
+      restoreTargetSizeTooltip?.();
+    }
 
     const weapon = this.weapon;
     if (!weapon) return;
 
-    const tooltips = this.tooltips;
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
     const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
@@ -165,6 +197,28 @@ function ensureWeaponDialogPatched(app) {
       damage: fields.damage,
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
+
+    const defaultSize = getTargetSize(this);
+    this._combatOptionsDefaultSizeModifier = defaultSize;
+
+    const defaultFieldValue = defaultSize === "average" ? "" : defaultSize;
+    if (this._combatOptionsSizeOverride && (fields.sizeModifier ?? "") === defaultFieldValue) {
+      this._combatOptionsSizeOverride = false;
+    }
+
+    if (!this._combatOptionsSizeOverride) {
+      fields.sizeModifier = defaultFieldValue;
+    }
+
+    const baseSizeModifier = SIZE_MODIFIER_OPTIONS[defaultSize];
+    if (baseSizeModifier) {
+      if (baseSizeModifier.pool) {
+        baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - baseSizeModifier.pool);
+      }
+      if (baseSizeModifier.difficulty) {
+        baseSnapshot.difficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0) - baseSizeModifier.difficulty);
+      }
+    }
 
     this._combatOptionsInitialFields = foundry.utils.deepClone(preCompute);
     this._combatOptionsBaseFields = foundry.utils.deepClone(baseSnapshot);
@@ -377,6 +431,17 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       ]
     };
 
+    const defaultSize = app._combatOptionsDefaultSizeModifier ?? getTargetSize(app);
+    app._combatOptionsDefaultSizeModifier = defaultSize;
+    const defaultFieldValue = defaultSize === "average" ? "" : defaultSize;
+    if (app._combatOptionsSizeOverride && (ctx.fields.sizeModifier ?? "") === defaultFieldValue) {
+      app._combatOptionsSizeOverride = false;
+    }
+    if (!app._combatOptionsSizeOverride) {
+      ctx.fields.sizeModifier = defaultFieldValue;
+      foundry.utils.setProperty(app.fields ?? (app.fields = {}), "sizeModifier", defaultFieldValue);
+    }
+
     if (!canPinning) {
       foundry.utils.setProperty(ctx.fields, "pinning", false);
     }
@@ -410,8 +475,12 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
       const fields = app.fields ?? (app.fields = {});
-      
+
       foundry.utils.setProperty(fields, name, value);
+
+      if (name === "sizeModifier") {
+        app._combatOptionsSizeOverride = true;
+      }
 
       if (name === "calledShot.enabled") {
         root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
