@@ -178,8 +178,7 @@ function ensureWeaponDialogPatched(app) {
       visionPenalty: "",
       calledShot: {
         enabled: false,
-        size: "",
-        label: ""
+        size: ""
       }
     }, { inplace: false });
   };
@@ -198,7 +197,22 @@ function ensureWeaponDialogPatched(app) {
       if (initialSnapshot.ed !== undefined) {
         fields.ed = foundry.utils.deepClone(initialSnapshot.ed);
       }
+    } else {
+      const damageBaseline = this._combatOptionsDamageBaseline;
+      if (damageBaseline) {
+        if (damageBaseline.damage !== undefined) fields.damage = damageBaseline.damage;
+        if (damageBaseline.ed !== undefined) {
+          fields.ed = foundry.utils.deepClone(damageBaseline.ed);
+        }
+      }
     }
+
+    if (!fields.ed) fields.ed = { value: 0, dice: "" };
+
+    this._combatOptionsDamageBaseline = {
+      damage: fields.damage,
+      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
+    };
 
     const preCompute = {
       pool: Number(fields.pool ?? 0),
@@ -472,7 +486,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         size: "Target Size",
         calledShot: "Called Shot",
         calledShotSize: "Target Size",
-        calledShotLabel: "Label",
         disarm: "Disarm (No damage)"
       },
       coverOptions: [
