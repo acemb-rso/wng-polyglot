@@ -1,16 +1,32 @@
 // modules/wng-CombatExtender/scripts/combat-options.js
+//
+// This script enhances the Wrath & Glory weapon attack dialog with additional combat
+// options. These options mirror the situational modifiers described in the core rules
+// (e.g. aiming, charging, or fighting in poor visibility) and allow players to toggle
+// them directly from the dialog. Most of the logic below focuses on three concerns:
+//
+//   1.  Preparing the Handlebars context used to render the custom UI section.
+//   2.  Extending the dialog prototype so that selecting options recalculates the attack.
+//   3.  Synchronising the dialog inputs after recalculations to keep the UI consistent.
+//
+// The result is a lightweight quality-of-life feature that avoids manual arithmetic at
+// the table and keeps the core system untouched by applying changes at runtime.
 
 const MODULE_ID = "wng-CombatExtender";
 const MODULE_BASE_PATH = `modules/${MODULE_ID}`;
 const TEMPLATE_BASE_PATH = `${MODULE_BASE_PATH}/templates`;
 const MODULE_LABEL = "WNG Combat Extender";
 
+// Lightweight wrapper around the console that prefixes every log line with the module
+// label. This keeps the browser console readable when several modules are active.
 const log = (level, message, ...data) => {
   const logger = console[level] ?? console.log;
   logger(`${MODULE_LABEL} | ${message}`, ...data);
 };
 const logError = (...args) => log("error", ...args);
 
+// User-facing labels that are reused in multiple places (Handlebars templates, tooltips,
+// and log messages). Centralising them keeps the UI consistent.
 const COMBAT_OPTION_LABELS = {
   allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
   charge: "Charge (+1 Die, 2× Speed)",
@@ -24,6 +40,8 @@ const COMBAT_OPTION_LABELS = {
   calledShotDisarm: "Disarm (No damage)"
 };
 
+// Modifiers applied when attacking in different light levels. Each entry stores the
+// label shown to the user as well as the ranged/melee penalty applied to the roll.
 const VISION_PENALTIES = {
   twilight: { label: "Vision: Twilight, Light Shadows, Heavy Mist (+1 DN Ranged / +0 DN Melee)", ranged: 1, melee: 0 },
   dim: {      label: "Vision: Very Dim Light, Heavy Rain, Fog, Drifting Smoke (+2 DN Ranged / +1 DN Melee)", ranged: 2, melee: 1 },
@@ -31,6 +49,9 @@ const VISION_PENALTIES = {
   darkness: { label: "Vision: Total Darkness, Thermal Smoke (+4 DN Ranged / +3 DN Melee)", ranged: 4, melee: 3 }
 };
 
+// Size-based modifiers declared in the rules. Positive `pool` values add dice while
+// `difficulty` entries increase the DN (target number). "Average" is represented by a
+// zero-modifier entry to simplify the application logic later.
 const SIZE_MODIFIER_OPTIONS = {
   tiny:        { label: "Tiny Target (+2 DN)", difficulty: 2 },
   small:       { label: "Small Target (+1 DN)", difficulty: 1 },
@@ -40,6 +61,8 @@ const SIZE_MODIFIER_OPTIONS = {
   gargantuan:  { label: "Gargantuan Target (+3 Dice)", pool: 3 }
 };
 
+// Convenience set used to verify whether a provided size string corresponds to one of
+// the declared options.
 const SIZE_OPTION_KEYS = new Set(Object.keys(SIZE_MODIFIER_OPTIONS));
 
 function normalizeSizeKey(size) {
@@ -49,6 +72,8 @@ function normalizeSizeKey(size) {
   return SIZE_OPTION_KEYS.has(key) ? key : "average";
 }
 
+// Determine the default target size based on the first selected target. The method reads
+// the actor's combat size when available and gracefully falls back to token data.
 function getTargetSize(dialog) {
   const target = dialog?.data?.targets?.[0];
   const actor = target?.actor ?? target?.document?.actor;
@@ -59,15 +84,22 @@ function getTargetSize(dialog) {
 }
 
 Hooks.once("init", async () => {
+  // Preload templates to avoid render-time disk access. Foundry caches the compiled
+  // templates which gives us a small performance boost during gameplay.
   await loadTemplates([
     `${TEMPLATE_BASE_PATH}/combat-options.hbs`,
     `${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`,
     `${TEMPLATE_BASE_PATH}/partials/co-select.hbs`
   ]);
 
+  // Register partials manually because this file can be executed before the template
+  // cache is populated. Doing this here guarantees the helpers exist when the dialog is
+  // rendered.
   Handlebars.registerPartial("co-checkbox", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-checkbox.hbs`).then(r => r.text()));
   Handlebars.registerPartial("co-select", await fetch(`${TEMPLATE_BASE_PATH}/partials/co-select.hbs`).then(r => r.text()));
 
+  // Quality-of-life helpers used by the templates. `concat` mimics the helper available
+  // in the core Foundry templates.
   Handlebars.registerHelper("t", (s) => String(s));
   Handlebars.registerHelper("eq", (a, b) => a === b);
   Handlebars.registerHelper("not", (v) => !v);
@@ -76,6 +108,9 @@ Hooks.once("init", async () => {
 
 const patchedWeaponDialogPrototypes = new WeakSet();
 
+// Ensure the weapon dialog prototype is patched only once. Foundry creates several
+// dialog instances that share a prototype, so applying the mixins to the prototype is
+// significantly cheaper than wrapping every new instance individually.
 function ensureWeaponDialogPatched(app) {
   const prototype = app?.constructor?.prototype ?? Object.getPrototypeOf(app);
   if (!prototype || prototype === Application.prototype) return false;
@@ -92,6 +127,8 @@ function ensureWeaponDialogPatched(app) {
     return false;
   }
 
+  // Inject our computed options into the rendering context. The returned object is passed
+  // directly to the Handlebars template when the dialog renders.
   prototype._prepareContext = async function (options) {
     const context = await originalPrepareContext.call(this, options);
 
@@ -106,6 +143,8 @@ function ensureWeaponDialogPatched(app) {
     const canPinning = Boolean(weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
 
     const fields = this.fields ?? (this.fields = {});
+    // Clear lingering pinning values if the current weapon configuration no longer
+    // supports the action (for example when switching from a ranged to a melee weapon).
     if (!canPinning && fields.pinning) {
       fields.pinning = false;
     }
@@ -122,6 +161,8 @@ function ensureWeaponDialogPatched(app) {
     return context;
   };
 
+  // Supply neutral defaults for the extended fields. This prevents stale values from
+  // lingering between dialog uses when Foundry reuses the same instance.
   prototype._defaultFields = function () {
     const defaults = originalDefaultFields.call(this) ?? {};
     return foundry.utils.mergeObject(defaults, {
@@ -143,6 +184,9 @@ function ensureWeaponDialogPatched(app) {
     }, { inplace: false });
   };
 
+  // Recalculate attack statistics after toggling any combat option. The method mirrors
+  // the original implementation provided by the W&G system but layers additional
+  // modifiers on top of the system defaults.
   prototype.computeFields = function () {
     const fields = this.fields ?? (this.fields = {});
 
@@ -163,6 +207,9 @@ function ensureWeaponDialogPatched(app) {
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
 
+    // Tooltips provide a breakdown of modifiers to the end user. We temporarily disable
+    // the default "Target Size" entry so that we can replace it with the recalculated
+    // information after our adjustments.
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
     if (tooltips && typeof tooltips.finish === "function") {
@@ -183,6 +230,8 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return;
 
+    // Helper used throughout this method to add contextual notes to Foundry's tooltip
+    // summary. When tooltips are disabled the call becomes a harmless no-op.
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
     const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
@@ -191,6 +240,9 @@ function ensureWeaponDialogPatched(app) {
       fields.pinning = false;
     }
 
+    // `baseSnapshot` captures the system-calculated values before any combat options are
+    // applied. It allows us to reset the state if an option that modifies these fields is
+    // untoggled.
     const baseSnapshot = {
       pool: Number(fields.pool ?? 0),
       difficulty: Number(fields.difficulty ?? 0),
@@ -198,6 +250,9 @@ function ensureWeaponDialogPatched(app) {
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
 
+    // Determine the size modifier that should apply automatically based on the selected
+    // target. Users can override this manually and the flag below remembers that choice
+    // until the dialog is closed.
     const defaultSize = getTargetSize(this);
     this._combatOptionsDefaultSizeModifier = defaultSize;
 
@@ -234,6 +289,8 @@ function ensureWeaponDialogPatched(app) {
     const baseEdDice  = fields.ed?.dice ?? "";
     let damageSuppressed = false;
 
+    // Melee-specific options. These generally add dice or provide bookkeeping-only
+    // reminders to the tooltip log.
     if (weapon?.isMelee) {
       if (fields.allOutAttack) {
         fields.pool += 2;
@@ -243,6 +300,8 @@ function ensureWeaponDialogPatched(app) {
       if (fields.fallBack) addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
     }
 
+    // Ranged-specific options including bracing, suppressive fire, and pistol penalties
+    // when firing in melee.
     if (weapon?.isRanged) {
       if (fields.brace) {
         const heavyTrait = weapon.system?.traits?.get?.("heavy") ?? weapon.system?.traits?.has?.("heavy");
@@ -310,6 +369,7 @@ function ensureWeaponDialogPatched(app) {
       addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.fullCover);
     }
 
+    // Restore the weapon's base damage dice if no option has explicitly zeroed them out.
     if (!damageSuppressed) {
       fields.damage  = baseDamage;
       fields.ed.value = baseEdValue;
@@ -325,6 +385,9 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
+// Synchronise the visible form controls with the recalculated values. Foundry does not
+// automatically update input elements when `fields` is mutated, so we patch them
+// manually after each recomputation.
 function updateVisibleFields(app, html) {
   const $html = html instanceof jQuery ? html : $(html);
   
@@ -354,6 +417,9 @@ function updateVisibleFields(app, html) {
   }
 }
 
+// Primary entry point: whenever the system renders a weapon dialog we inject our custom
+// UI and ensure the prototype is patched. From here the module reacts to user input and
+// recalculates the attack fields as necessary.
 Hooks.on("renderWeaponDialog", async (app, html) => {
   try {
     if (game.system.id !== "wrath-and-glory") return;
@@ -362,7 +428,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const $html = html instanceof jQuery ? html : $(html);
 
-    // Remove original controls to prevent duplicates
+    // Remove original controls to prevent duplicates. The module injects replacements
+    // that offer the same behaviour alongside the additional modifiers.
     $html.find('.form-group').has('input[name="aim"]').remove();
     $html.find('.form-group').has('input[name="charging"]').remove();
     $html.find('.form-group').has('select[name="calledShot.size"]').remove();
@@ -370,7 +437,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
 
-    // Store the initial computed values so we can reset to them
+    // Store the initial computed values so we can reset to them. Some combat options
+    // temporarily replace the base damage/ED, so we cache the pristine state to restore
+    // when the option is toggled off.
     if (!app._initialFieldsComputed) {
       if (typeof app.computeInitialFields === 'function') {
         app.computeInitialFields();
@@ -378,6 +447,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       app._initialFieldsComputed = true;
     }
 
+    // Pinning is only available for ranged weapons with a Salvo value above one. The
+    // check mirrors the logic in the compute step so the UI stays in sync with gameplay
+    // rules.
     const salvoValue = Number(app.weapon?.system?.salvo ?? app.weapon?.salvo ?? 0);
     const canPinning = Boolean(app.weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
 
@@ -442,6 +514,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       foundry.utils.setProperty(app.fields ?? (app.fields = {}), "sizeModifier", defaultFieldValue);
     }
 
+    // When the weapon cannot perform pinning attacks we proactively disable the checkbox
+    // value so the UI and internal state stay aligned.
     if (!canPinning) {
       foundry.utils.setProperty(ctx.fields, "pinning", false);
     }
@@ -463,12 +537,18 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     if (!canPinning) {
       foundry.utils.setProperty(app.fields ?? (app.fields = {}), "pinning", false);
     }
+    // Remove any lingering listeners before wiring new ones to avoid duplicate handlers
+    // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
 
+    // Remember whether the section is expanded so the dialog can restore the state when
+    // it is reopened during the same session.
     root.on("toggle.combatOptions", () => {
       app._combatOptionsOpen = root.prop("open");
     });
 
+    // Delegate change events so that dynamically re-rendered controls stay wired without
+    // re-attaching listeners to each element individually.
     root.on("change.combatOptions", "[data-co]", (ev) => {
       ev.stopPropagation();
       const el = ev.currentTarget;
@@ -478,15 +558,20 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
       foundry.utils.setProperty(fields, name, value);
 
+      // Once the player manually selects a size modifier we keep their choice instead of
+      // recalculating it automatically from the target token on subsequent renders.
       if (name === "sizeModifier") {
         app._combatOptionsSizeOverride = true;
       }
 
+      // Toggle the visibility of the called shot sub-form so that the dialog only shows
+      // the additional inputs when the option is active.
       if (name === "calledShot.enabled") {
         root.find(".combat-options__called-shot").toggleClass("is-hidden", !value);
       }
 
-      // Force complete recalculation
+      // Force a complete recalculation so the system re-applies weapon stats before we
+      // layer our modifiers on top of them.
       app._combatOptionsInitialFields = undefined;
       app._combatOptionsBaseFields = undefined;
       if (typeof app.computeInitialFields === 'function') {
