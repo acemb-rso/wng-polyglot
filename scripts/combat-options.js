@@ -730,18 +730,18 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       canPinning,
       fields: foundry.utils.duplicate(app.fields ?? {}),
       labels: {
-        allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
-        charge: "Charge (+1 Die, 2× Speed)",
-        grapple: "Grapple (Opposed Strength Test)",
-        fallBack: "Fall Back (Disengage safely)",
-        brace: "Brace (Negate Heavy trait)",
-        pinning: "Suppressing Fire (Pinning)",
+        allOutAttack: COMBAT_OPTION_LABELS.allOutAttack,
+        charge: COMBAT_OPTION_LABELS.charge,
+        grapple: COMBAT_OPTION_LABELS.grapple,
+        fallBack: COMBAT_OPTION_LABELS.fallBack,
+        brace: COMBAT_OPTION_LABELS.brace,
+        pinning: COMBAT_OPTION_LABELS.pinning,
         cover: "Cover",
         vision: "Vision",
         size: "Target Size",
         calledShot: "Called Shot",
         calledShotSize: "Target Size",
-        disarm: "Disarm (No damage)"
+        disarm: COMBAT_OPTION_LABELS.calledShotDisarm
       },
       coverOptions: [
         { value: "",     label: "No Cover" },
@@ -770,6 +770,30 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         { value: "medium", label: game.i18n.localize("SIZE.MEDIUM") }
       ]
     };
+
+    const actor = app.actor ?? app.token?.actor;
+    const disableAllOutAttack = Boolean(actor?.statuses?.has?.("full-defence"));
+
+    const previousAllOutAttack = foundry.utils.getProperty(app.fields ?? (app.fields = {}), "allOutAttack");
+
+    if (disableAllOutAttack) {
+      foundry.utils.setProperty(ctx.fields, "allOutAttack", false);
+      foundry.utils.setProperty(app.fields, "allOutAttack", false);
+    }
+
+    ctx.disableAllOutAttack = disableAllOutAttack;
+
+    if (disableAllOutAttack && previousAllOutAttack) {
+      app._combatOptionsInitialFields = undefined;
+      app._combatOptionsBaseFields = undefined;
+      if (typeof app.computeInitialFields === 'function') {
+        app.computeInitialFields();
+      }
+      if (typeof app.computeFields === 'function') {
+        app.computeFields();
+      }
+      updateVisibleFields(app, $html);
+    }
 
     const defaultSize = app._combatOptionsDefaultSizeModifier ?? getTargetSize(app);
     app._combatOptionsDefaultSizeModifier = defaultSize;
@@ -825,6 +849,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const fields = app.fields ?? (app.fields = {});
 
       foundry.utils.setProperty(fields, name, value);
+
+      if (name === "allOutAttack" && disableAllOutAttack) {
+        foundry.utils.setProperty(fields, "allOutAttack", false);
+        root.find('input[name="allOutAttack"]').prop("checked", false);
+      }
 
       // Once the player manually selects a size modifier we keep their choice instead of
       // recalculating it automatically from the target token on subsequent renders.

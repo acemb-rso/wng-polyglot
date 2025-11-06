@@ -9,7 +9,7 @@
     <div class="combat-options__group">
       <div class="combat-options__header">{{localize "WNG.MeleeOptions"}}</div>
       <div class="combat-options__option">
-        <input data-co type="checkbox" name="allOutAttack" {{#if fields.allOutAttack}}checked{{/if}} />
+        <input data-co type="checkbox" name="allOutAttack" {{#if fields.allOutAttack}}checked{{/if}} {{#if disableAllOutAttack}}disabled{{/if}} />
         <span>{{t labels.allOutAttack}}</span>
       </div>
       <div class="combat-options__option">
