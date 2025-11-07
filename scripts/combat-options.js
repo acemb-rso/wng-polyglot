@@ -129,6 +129,46 @@ function getTokenDisposition(token) {
   return 0;
 }
 
+function getTokenRadius(token, measurement) {
+  if (!token) return 0;
+
+  const context = measurement ?? getCanvasMeasurementContext();
+  const gridDistance = Number(context?.gridDistance ?? canvas?.dimensions?.distance);
+
+  const widthUnits = Number(token.document?.width);
+  const heightUnits = Number(token.document?.height);
+  const hasUnitSize = (Number.isFinite(widthUnits) && widthUnits > 0)
+    || (Number.isFinite(heightUnits) && heightUnits > 0);
+
+  if (hasUnitSize && Number.isFinite(gridDistance) && gridDistance > 0) {
+    const maxUnits = Math.max(
+      Number.isFinite(widthUnits) ? widthUnits : 0,
+      Number.isFinite(heightUnits) ? heightUnits : 0
+    );
+    if (maxUnits > 0) {
+      return (maxUnits * gridDistance) / 2;
+    }
+  }
+
+  const unitPerPixel = Number(context?.unitPerPixel);
+  const widthPx = Number(token.w ?? token.width);
+  const heightPx = Number(token.h ?? token.height);
+  const hasPixelSize = (Number.isFinite(widthPx) && widthPx > 0)
+    || (Number.isFinite(heightPx) && heightPx > 0);
+
+  if (hasPixelSize && Number.isFinite(unitPerPixel) && unitPerPixel > 0) {
+    const maxPx = Math.max(
+      Number.isFinite(widthPx) ? widthPx : 0,
+      Number.isFinite(heightPx) ? heightPx : 0
+    );
+    if (maxPx > 0) {
+      return (maxPx * unitPerPixel) / 2;
+    }
+  }
+
+  return 0;
+}
+
 function measureTokenDistance(tokenA, tokenB, measurement) {
   if (!tokenA || !tokenB) return Infinity;
   const context = measurement ?? getCanvasMeasurementContext();
@@ -164,12 +204,51 @@ function measureTokenDistance(tokenA, tokenB, measurement) {
   }
 }
 
+function measureTokenEdgeDistance(tokenA, tokenB, measurement) {
+  if (!tokenA || !tokenB) return Infinity;
+
+  const context = measurement ?? getCanvasMeasurementContext();
+  const unitPerPixel = Number(context?.unitPerPixel);
+
+  const boundsA = tokenA.bounds ?? tokenA.getBounds?.();
+  const boundsB = tokenB.bounds ?? tokenB.getBounds?.();
+
+  if (boundsA && boundsB && Number.isFinite(unitPerPixel) && unitPerPixel > 0) {
+    const gapRight = boundsB.x - (boundsA.x + boundsA.width);
+    const gapLeft = boundsA.x - (boundsB.x + boundsB.width);
+    const gapTop = boundsA.y - (boundsB.y + boundsB.height);
+    const gapBottom = boundsB.y - (boundsA.y + boundsA.height);
+
+    const dx = Math.max(0, gapRight, gapLeft);
+    const dy = Math.max(0, gapTop, gapBottom);
+
+    const distancePx = Math.hypot(dx, dy);
+    if (Number.isFinite(distancePx)) {
+      return distancePx * unitPerPixel;
+    }
+  }
+
+  const centerDistance = measureTokenDistance(tokenA, tokenB, context);
+  if (!Number.isFinite(centerDistance)) return Infinity;
+
+  const radiusA = getTokenRadius(tokenA, context);
+  const radiusB = getTokenRadius(tokenB, context);
+  const radiusSum = (Number.isFinite(radiusA) ? radiusA : 0) + (Number.isFinite(radiusB) ? radiusB : 0);
+  const edgeDistance = centerDistance - radiusSum;
+
+  if (!Number.isFinite(edgeDistance)) return Infinity;
+  return edgeDistance > 0 ? edgeDistance : 0;
+}
+
 function tokensAreEngaged(tokenA, tokenB, measurement) {
   if (!tokenA || !tokenB) return false;
-  const threshold = Math.max(getTokenEngagementRange(tokenA), getTokenEngagementRange(tokenB));
-  if (!Number.isFinite(threshold) || threshold <= 0) return false;
 
-  const distance = measureTokenDistance(tokenA, tokenB, measurement);
+  const context = measurement ?? getCanvasMeasurementContext();
+
+  const threshold = Math.max(getTokenEngagementRange(tokenA), getTokenEngagementRange(tokenB));
+  if (!Number.isFinite(threshold) || threshold < 0) return false;
+
+  const distance = measureTokenEdgeDistance(tokenA, tokenB, context);
   if (!Number.isFinite(distance)) return false;
 
   return distance <= threshold;
@@ -198,7 +277,8 @@ function getCanvasMeasurementContext() {
   return {
     unitPerPixel,
     pxPerUnit,
-    bucketSizePx: size
+    bucketSizePx: size,
+    gridDistance: distance
   };
 }
 
@@ -215,6 +295,10 @@ function buildEngagementTokenData(token, measurement) {
   const rawRangePx = measurement?.pxPerUnit ? range * measurement.pxPerUnit : null;
   const rangePx = Number.isFinite(rawRangePx) && rawRangePx >= 0 ? rawRangePx : null;
 
+  const radius = getTokenRadius(token, measurement);
+  const rawRadiusPx = measurement?.pxPerUnit ? radius * measurement.pxPerUnit : null;
+  const radiusPx = Number.isFinite(rawRadiusPx) && rawRadiusPx >= 0 ? rawRadiusPx : null;
+
   const bucketSizePx = measurement?.bucketSizePx;
   const bucketX = bucketSizePx ? Math.floor(x / bucketSizePx) : null;
   const bucketY = bucketSizePx ? Math.floor(y / bucketSizePx) : null;
@@ -226,6 +310,8 @@ function buildEngagementTokenData(token, measurement) {
     y,
     range,
     rangePx,
+    radius,
+    radiusPx,
     bucketX: Number.isFinite(bucketX) ? bucketX : null,
     bucketY: Number.isFinite(bucketY) ? bucketY : null
   };
@@ -254,14 +340,23 @@ function collectEngagedTokenIds(friendlyTokens, hostileTokens, measurement) {
     const bucketSizePx = measurement.bucketSizePx;
     const pxPerUnit = measurement.pxPerUnit;
 
-    let maxRangePx = 0;
+    let maxReachPx = 0;
+    let maxRadiusPx = 0;
     for (const entry of [...friendlyData, ...hostileData]) {
-      if (Number.isFinite(entry.rangePx) && entry.rangePx > maxRangePx) {
-        maxRangePx = entry.rangePx;
+      const entryRangePx = Number.isFinite(entry.rangePx) ? entry.rangePx : (Number.isFinite(entry.range) ? entry.range * pxPerUnit : 0);
+      const entryRadiusPx = Number.isFinite(entry.radiusPx) ? entry.radiusPx : (Number.isFinite(entry.radius) ? entry.radius * pxPerUnit : 0);
+
+      if (Number.isFinite(entryRadiusPx) && entryRadiusPx > maxRadiusPx) {
+        maxRadiusPx = entryRadiusPx;
+      }
+
+      const reachPx = (Number.isFinite(entryRangePx) ? entryRangePx : 0) + (Number.isFinite(entryRadiusPx) ? entryRadiusPx : 0);
+      if (Number.isFinite(reachPx) && reachPx > maxReachPx) {
+        maxReachPx = reachPx;
       }
     }
 
-    const bucketRadius = Math.max(0, Math.ceil(maxRangePx / bucketSizePx));
+    const bucketRadius = Math.max(0, Math.ceil((maxReachPx + maxRadiusPx) / bucketSizePx));
     const hostileBuckets = new Map();
 
     for (const hostile of hostileData) {
@@ -281,15 +376,22 @@ function collectEngagedTokenIds(friendlyTokens, hostileTokens, measurement) {
           if (!candidates?.length) continue;
 
           for (const hostile of candidates) {
-            const threshold = Math.max(friendly.range, hostile.range);
-            if (!Number.isFinite(threshold) || threshold <= 0) continue;
+            const baseThreshold = Math.max(friendly.range, hostile.range);
+            if (!Number.isFinite(baseThreshold) || baseThreshold < 0) continue;
 
-            const thresholdPx = threshold * pxPerUnit;
+            const expandedThreshold = baseThreshold
+              + (Number.isFinite(friendly.radius) ? friendly.radius : 0)
+              + (Number.isFinite(hostile.radius) ? hostile.radius : 0);
+            if (!Number.isFinite(expandedThreshold) || expandedThreshold <= 0) continue;
+
+            const thresholdPx = expandedThreshold * pxPerUnit;
             const dx = hostile.x - friendly.x;
             const dy = hostile.y - friendly.y;
 
             if (Math.abs(dx) > thresholdPx || Math.abs(dy) > thresholdPx) continue;
             if ((dx * dx + dy * dy) > (thresholdPx * thresholdPx)) continue;
+
+            if (!tokensAreEngaged(friendly.token, hostile.token, measurement)) continue;
 
             engagedTokenIds.add(friendly.id);
             engagedTokenIds.add(hostile.id);
