@@ -120,14 +120,41 @@ function getTokenEngagementRange(token) {
   return getEngagementRangeForSize(sizeKey);
 }
 
-function measureTokenDistance(tokenA, tokenB) {
+function getTokenDisposition(token) {
+  if (!token) return 0;
+  const documentDisposition = token.document?.disposition;
+  if (typeof documentDisposition === "number") return documentDisposition;
+  const placeableDisposition = token.disposition;
+  if (typeof placeableDisposition === "number") return placeableDisposition;
+  return 0;
+}
+
+function measureTokenDistance(tokenA, tokenB, measurement) {
   if (!tokenA || !tokenB) return Infinity;
+  const context = measurement ?? getCanvasMeasurementContext();
+  const unitPerPixel = context?.unitPerPixel;
+
+  const centerA = tokenA.center;
+  const centerB = tokenB.center;
+
+  if (unitPerPixel && centerA && centerB) {
+    const dx = Number(centerA.x) - Number(centerB.x);
+    const dy = Number(centerA.y) - Number(centerB.y);
+    if (Number.isFinite(dx) && Number.isFinite(dy)) {
+      const distancePx = Math.hypot(dx, dy);
+      if (Number.isFinite(distancePx)) {
+        return distancePx * unitPerPixel;
+      }
+    }
+  }
+
   const grid = canvas?.grid;
   if (!grid) return Infinity;
+  if (!centerA || !centerB) return Infinity;
   if (typeof Ray !== "function") return Infinity;
 
   try {
-    const ray = new Ray(tokenA.center, tokenB.center);
+    const ray = new Ray(centerA, centerB);
     const distances = grid.measureDistances([{ ray }], { gridSpaces: false });
     const value = distances?.[0];
     return Number.isFinite(value) ? value : Infinity;
@@ -137,15 +164,162 @@ function measureTokenDistance(tokenA, tokenB) {
   }
 }
 
-function tokensAreEngaged(tokenA, tokenB) {
+function tokensAreEngaged(tokenA, tokenB, measurement) {
   if (!tokenA || !tokenB) return false;
   const threshold = Math.max(getTokenEngagementRange(tokenA), getTokenEngagementRange(tokenB));
   if (!Number.isFinite(threshold) || threshold <= 0) return false;
 
-  const distance = measureTokenDistance(tokenA, tokenB);
+  const distance = measureTokenDistance(tokenA, tokenB, measurement);
   if (!Number.isFinite(distance)) return false;
 
   return distance <= threshold;
+}
+
+function getCanvasMeasurementContext() {
+  const dimensions = canvas?.dimensions;
+  if (!dimensions) return null;
+
+  const distance = Number(dimensions.distance);
+  const size = Number(dimensions.size);
+  if (!Number.isFinite(distance) || !Number.isFinite(size) || distance <= 0 || size <= 0) {
+    return null;
+  }
+
+  const unitPerPixel = distance / size;
+  if (!Number.isFinite(unitPerPixel) || unitPerPixel <= 0) {
+    return null;
+  }
+
+  const pxPerUnit = 1 / unitPerPixel;
+  if (!Number.isFinite(pxPerUnit) || pxPerUnit <= 0) {
+    return null;
+  }
+
+  return {
+    unitPerPixel,
+    pxPerUnit,
+    bucketSizePx: size
+  };
+}
+
+function buildEngagementTokenData(token, measurement) {
+  if (!token?.id) return null;
+  const center = token.center;
+  if (!center) return null;
+
+  const x = Number(center.x);
+  const y = Number(center.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  const range = getTokenEngagementRange(token);
+  const rawRangePx = measurement?.pxPerUnit ? range * measurement.pxPerUnit : null;
+  const rangePx = Number.isFinite(rawRangePx) && rawRangePx >= 0 ? rawRangePx : null;
+
+  const bucketSizePx = measurement?.bucketSizePx;
+  const bucketX = bucketSizePx ? Math.floor(x / bucketSizePx) : null;
+  const bucketY = bucketSizePx ? Math.floor(y / bucketSizePx) : null;
+
+  return {
+    token,
+    id: token.id,
+    x,
+    y,
+    range,
+    rangePx,
+    bucketX: Number.isFinite(bucketX) ? bucketX : null,
+    bucketY: Number.isFinite(bucketY) ? bucketY : null
+  };
+}
+
+function collectEngagedTokenIds(friendlyTokens, hostileTokens, measurement) {
+  const engagedTokenIds = new Set();
+  if (!friendlyTokens.length || !hostileTokens.length) return engagedTokenIds;
+
+  const friendlyData = friendlyTokens
+    .map((token) => buildEngagementTokenData(token, measurement))
+    .filter(Boolean);
+  const hostileData = hostileTokens
+    .map((token) => buildEngagementTokenData(token, measurement))
+    .filter(Boolean);
+
+  if (!friendlyData.length || !hostileData.length) {
+    return engagedTokenIds;
+  }
+
+  const canBucket = Boolean(measurement?.pxPerUnit && measurement?.bucketSizePx);
+  const friendBucketed = canBucket && friendlyData.every((entry) => Number.isFinite(entry.bucketX) && Number.isFinite(entry.bucketY));
+  const hostileBucketed = canBucket && hostileData.every((entry) => Number.isFinite(entry.bucketX) && Number.isFinite(entry.bucketY));
+
+  if (friendBucketed && hostileBucketed) {
+    const bucketSizePx = measurement.bucketSizePx;
+    const pxPerUnit = measurement.pxPerUnit;
+
+    let maxRangePx = 0;
+    for (const entry of [...friendlyData, ...hostileData]) {
+      if (Number.isFinite(entry.rangePx) && entry.rangePx > maxRangePx) {
+        maxRangePx = entry.rangePx;
+      }
+    }
+
+    const bucketRadius = Math.max(0, Math.ceil(maxRangePx / bucketSizePx));
+    const hostileBuckets = new Map();
+
+    for (const hostile of hostileData) {
+      const key = `${hostile.bucketX},${hostile.bucketY}`;
+      const bucket = hostileBuckets.get(key);
+      if (bucket) {
+        bucket.push(hostile);
+      } else {
+        hostileBuckets.set(key, [hostile]);
+      }
+    }
+
+    for (const friendly of friendlyData) {
+      for (let bx = friendly.bucketX - bucketRadius; bx <= friendly.bucketX + bucketRadius; bx++) {
+        for (let by = friendly.bucketY - bucketRadius; by <= friendly.bucketY + bucketRadius; by++) {
+          const candidates = hostileBuckets.get(`${bx},${by}`);
+          if (!candidates?.length) continue;
+
+          for (const hostile of candidates) {
+            const threshold = Math.max(friendly.range, hostile.range);
+            if (!Number.isFinite(threshold) || threshold <= 0) continue;
+
+            const thresholdPx = threshold * pxPerUnit;
+            const dx = hostile.x - friendly.x;
+            const dy = hostile.y - friendly.y;
+
+            if (Math.abs(dx) > thresholdPx || Math.abs(dy) > thresholdPx) continue;
+            if ((dx * dx + dy * dy) > (thresholdPx * thresholdPx)) continue;
+
+            engagedTokenIds.add(friendly.id);
+            engagedTokenIds.add(hostile.id);
+          }
+        }
+      }
+    }
+
+    if (engagedTokenIds.size) {
+      return engagedTokenIds;
+    }
+  }
+
+  for (const friendly of friendlyData) {
+    for (const hostile of hostileData) {
+      if (tokensAreEngaged(friendly.token, hostile.token, measurement)) {
+        engagedTokenIds.add(friendly.id);
+        engagedTokenIds.add(hostile.id);
+      }
+    }
+  }
+
+  return engagedTokenIds;
+}
+
+function getActorIdentifier(actor, token = null) {
+  if (actor?.id) return actor.id;
+  if (actor?.uuid) return actor.uuid;
+  if (token?.id) return token.id;
+  return null;
 }
 
 function getEngagedEffect(actor) {
@@ -208,8 +382,41 @@ async function syncEngagedCondition(actor, engaged) {
   }
 }
 
+let reportedMissingAuraSupport = false;
+
+function canUseNativeAuraAutomation() {
+  const auraTransferType = game?.wng?.config?.transferTypes?.aura;
+  if (!auraTransferType) return false;
+
+  const warhammerRoot = game?.warhammer;
+  if (!warhammerRoot || typeof warhammerRoot !== "object") return false;
+
+  const auraManagers = [
+    warhammerRoot.effectManager,
+    warhammerRoot.effectScripts,
+    warhammerRoot.utility?.templates,
+    warhammerRoot.templates
+  ];
+
+  return auraManagers.some((entry) => entry && typeof entry === "object");
+}
+
+function reportMissingAuraAutomation() {
+  if (reportedMissingAuraSupport) return;
+  reportedMissingAuraSupport = true;
+  log("debug", "Falling back to manual Engaged automation because the Wrath & Glory aura pipeline is not exposed to modules.");
+}
+
 function shouldAutoApplyEngaged() {
-  return game.system?.id === "wrath-and-glory" && isActivePrimaryGM();
+  const compatibleSystem = game.system?.id === "wrath-and-glory";
+  const hasPrimaryGMPermissions = isActivePrimaryGM();
+  if (!(compatibleSystem && hasPrimaryGMPermissions)) return false;
+
+  if (!canUseNativeAuraAutomation()) {
+    reportMissingAuraAutomation();
+  }
+
+  return true;
 }
 
 async function evaluateEngagedConditions() {
@@ -217,21 +424,30 @@ async function evaluateEngagedConditions() {
   const tokensLayer = canvas?.tokens;
   if (!tokensLayer) return;
 
-  const tokens = Array.isArray(tokensLayer.placeables) ? tokensLayer.placeables : [];
-  if (!tokens.length) return;
+  const placeables = Array.isArray(tokensLayer.placeables) ? tokensLayer.placeables : [];
+  if (!placeables.length) return;
+
+  const tokensWithActors = placeables.filter((token) => token?.actor);
+  if (!tokensWithActors.length) return;
 
   const actorMap = new Map();
+  for (const token of tokensWithActors) {
+    const actor = token.actor;
+    const actorId = getActorIdentifier(actor, token);
+    if (!actor || !actorId) continue;
+    if (!actorMap.has(actorId)) {
+      actorMap.set(actorId, actor);
+    }
+  }
+
+  if (!actorMap.size) return;
+
+  const visibleTokens = tokensWithActors.filter((token) => !(token.document?.hidden ?? token.hidden));
   const friendlyTokens = [];
   const hostileTokens = [];
 
-  for (const token of tokens) {
-    const actor = token?.actor;
-    if (!actor) continue;
-    actorMap.set(actor.id, actor);
-
-    if (token.document?.hidden) continue;
-
-    const disposition = token.document?.disposition ?? token.disposition ?? 0;
+  for (const token of visibleTokens) {
+    const disposition = getTokenDisposition(token);
     if (disposition > 0) {
       friendlyTokens.push(token);
     } else if (disposition < 0) {
@@ -239,21 +455,24 @@ async function evaluateEngagedConditions() {
     }
   }
 
+  const measurementContext = getCanvasMeasurementContext();
+  const engagedTokenIds = collectEngagedTokenIds(friendlyTokens, hostileTokens, measurementContext);
+
   const engagedActorIds = new Set();
-  if (friendlyTokens.length && hostileTokens.length) {
-    for (const friendly of friendlyTokens) {
-      for (const hostile of hostileTokens) {
-        if (tokensAreEngaged(friendly, hostile)) {
-          if (friendly.actor) engagedActorIds.add(friendly.actor.id);
-          if (hostile.actor) engagedActorIds.add(hostile.actor.id);
-        }
+  if (engagedTokenIds.size) {
+    for (const token of tokensWithActors) {
+      if (!token?.id) continue;
+      if (!engagedTokenIds.has(token.id)) continue;
+      const actorId = getActorIdentifier(token.actor, token);
+      if (actorId) {
+        engagedActorIds.add(actorId);
       }
     }
   }
 
   const operations = [];
-  for (const actor of actorMap.values()) {
-    const shouldBeEngaged = engagedActorIds.has(actor.id);
+  for (const [actorId, actor] of actorMap.entries()) {
+    const shouldBeEngaged = engagedActorIds.has(actorId);
     operations.push(syncEngagedCondition(actor, shouldBeEngaged));
   }
 
@@ -342,6 +561,16 @@ function handleActorUpdate(actor, changed) {
   requestEngagedEvaluation();
 }
 
+function handleTokenRefresh(token) {
+  if (game.system?.id !== "wrath-and-glory") return;
+  if (!token) return;
+
+  const sceneRef = token.scene ?? token.document?.parent ?? token.parent;
+  if (sceneRef && !isActiveScene(sceneRef)) return;
+
+  requestEngagedEvaluation();
+}
+
 function registerEngagedStatusEffect() {
   if (game.system?.id !== "wrath-and-glory") return;
   if (!Array.isArray(CONFIG.statusEffects)) return;
@@ -387,6 +616,7 @@ Hooks.on("deleteToken", (scene, tokenDocument) => {
   handleTokenChange(scene);
   handleTokenDeletion(scene, tokenDocument);
 });
+Hooks.on("refreshToken", (token) => handleTokenRefresh(token));
 
 Hooks.on("updateActor", (actor, changed) => handleActorUpdate(actor, changed));
 
