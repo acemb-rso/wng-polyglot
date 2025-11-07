@@ -40,6 +40,13 @@ const COMBAT_OPTION_LABELS = {
   calledShotDisarm: "Disarm (No damage)"
 };
 
+const ENGAGED_TOOLTIP_LABELS = {
+  aimSuppressed: "Engaged Opponent (Aim bonus suppressed)",
+  shortRangeSuppressed: "Engaged Opponent (Short Range bonus suppressed)",
+  rangedBlocked: "Engaged Opponent (Cannot fire non-Pistol ranged weapons)",
+  targetNotEngaged: "Engaged Attacker (Targets must be engaged)"
+};
+
 const COVER_DIFFICULTY_VALUES = {
   "": 0,
   half: 1,
@@ -777,6 +784,74 @@ function getTargetIdentifier(dialog) {
   return target?.document?.id ?? target?.id ?? target?.token?.id ?? null;
 }
 
+function resolvePlaceableToken(tokenLike, { requireActiveScene = false } = {}) {
+  if (!tokenLike) return null;
+
+  let token = null;
+  if (tokenLike.center && tokenLike.document) {
+    token = tokenLike;
+  } else if (tokenLike.object?.center && tokenLike.object?.document) {
+    token = tokenLike.object;
+  } else if (tokenLike.document?.object?.center && tokenLike.document?.object?.document) {
+    token = tokenLike.document.object;
+  } else if (tokenLike.token) {
+    token = resolvePlaceableToken(tokenLike.token, { requireActiveScene: false });
+  }
+
+  if (!token) return null;
+
+  if (requireActiveScene) {
+    const sceneRef = token.scene ?? token.document?.parent ?? token.parent ?? null;
+    if (sceneRef && !isActiveScene(sceneRef)) return null;
+  }
+
+  return token;
+}
+
+function getDialogAttackerToken(dialog) {
+  if (!dialog) return null;
+
+  const directToken = resolvePlaceableToken(dialog.token, { requireActiveScene: true });
+  if (directToken) return directToken;
+
+  const actor = dialog.actor ?? dialog.token?.actor ?? null;
+  if (!actor) return null;
+
+  const activeTokens = typeof actor.getActiveTokens === "function"
+    ? actor.getActiveTokens(true)
+    : [];
+
+  for (const candidate of activeTokens) {
+    const resolved = resolvePlaceableToken(candidate, { requireActiveScene: true });
+    if (resolved) return resolved;
+  }
+
+  return null;
+}
+
+function getDialogTargetTokens(dialog) {
+  const targets = Array.isArray(dialog?.data?.targets) ? dialog.data.targets : [];
+  if (!targets.length) return [];
+
+  const results = [];
+  const seen = new Set();
+
+  for (const entry of targets) {
+    const token = resolvePlaceableToken(entry, { requireActiveScene: true });
+    if (!token) continue;
+
+    const identifier = token.id ?? token.document?.id ?? token.document?.uuid ?? null;
+    if (identifier) {
+      if (seen.has(identifier)) continue;
+      seen.add(identifier);
+    }
+
+    results.push(token);
+  }
+
+  return results;
+}
+
 function actorHasStatus(actor, statusId) {
   if (!actor) return false;
   if (typeof actor.hasCondition === "function") {
@@ -1297,6 +1372,18 @@ function ensureWeaponDialogPatched(app) {
       fields.pinning = false;
     }
 
+    const actor = this.actor ?? this.token?.actor ?? null;
+    const isEngaged = Boolean(getEngagedEffect(actor));
+    const pistolTrait = weapon?.system?.traits;
+    const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+    const canPistolsInMelee = Boolean(isEngaged && hasPistolTrait);
+
+    this._combatOptionsCanPistolsInMelee = canPistolsInMelee;
+
+    if (!canPistolsInMelee && fields.pistolsInMelee) {
+      fields.pistolsInMelee = false;
+    }
+
     context.combatOptionsOpen = Boolean(
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
       fields.fallBack || fields.brace || (canPinning && fields.pinning) ||
@@ -1427,6 +1514,75 @@ function ensureWeaponDialogPatched(app) {
       fields.sizeModifier = defaultFieldValue;
     }
 
+    const actor = this.actor ?? this.token?.actor ?? null;
+    const isEngaged = Boolean(getEngagedEffect(actor));
+    const pistolTrait = weapon?.system?.traits;
+    const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+    const engagedWithRangedWeapon = Boolean(weapon?.isRanged && isEngaged);
+
+    const canCheckTargets = typeof canvas !== "undefined" && canvas?.ready;
+    const attackerToken = canCheckTargets ? getDialogAttackerToken(this) : null;
+    const targetTokens = canCheckTargets ? getDialogTargetTokens(this) : [];
+
+    if (isEngaged && attackerToken && targetTokens.length) {
+      const measurement = getCanvasMeasurementContext();
+      const hasInvalidTargets = targetTokens.some((targetToken) => !tokensAreEngaged(attackerToken, targetToken, measurement));
+
+      if (hasInvalidTargets) {
+        const currentPool = Math.max(0, Number(baseSnapshot.pool ?? 0));
+        if (currentPool > 0) {
+          baseSnapshot.pool = 0;
+          addTooltip("pool", -currentPool, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
+        } else {
+          addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
+        }
+
+        const currentDifficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0));
+        const blockedDifficulty = Math.max(currentDifficulty, 999);
+        const difficultyDelta = blockedDifficulty - currentDifficulty;
+        baseSnapshot.difficulty = blockedDifficulty;
+        addTooltip("difficulty", difficultyDelta, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
+      }
+    }
+
+    if (engagedWithRangedWeapon) {
+      if (hasPistolTrait) {
+        if (fields.aim) {
+          const aimBonus = Math.min(1, Math.max(0, Number(baseSnapshot.pool ?? 0)));
+          if (aimBonus > 0) {
+            baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - aimBonus);
+            addTooltip("pool", -aimBonus, ENGAGED_TOOLTIP_LABELS.aimSuppressed);
+          } else {
+            addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.aimSuppressed);
+          }
+        }
+
+        if ((fields.range ?? "") === "short") {
+          const shortBonus = Math.min(1, Math.max(0, Number(baseSnapshot.pool ?? 0)));
+          if (shortBonus > 0) {
+            baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - shortBonus);
+            addTooltip("pool", -shortBonus, ENGAGED_TOOLTIP_LABELS.shortRangeSuppressed);
+          } else {
+            addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.shortRangeSuppressed);
+          }
+        }
+      } else {
+        const currentPool = Math.max(0, Number(baseSnapshot.pool ?? 0));
+        if (currentPool > 0) {
+          baseSnapshot.pool = 0;
+          addTooltip("pool", -currentPool, ENGAGED_TOOLTIP_LABELS.rangedBlocked);
+        } else {
+          addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.rangedBlocked);
+        }
+
+        const currentDifficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0));
+        const blockedDifficulty = Math.max(currentDifficulty, 999);
+        const difficultyDelta = blockedDifficulty - currentDifficulty;
+        baseSnapshot.difficulty = blockedDifficulty;
+        addTooltip("difficulty", difficultyDelta, ENGAGED_TOOLTIP_LABELS.rangedBlocked);
+      }
+    }
+
     const baseSizeKey = this._combatOptionsSizeOverride
       ? normalizeSizeKey(fields.sizeModifier)
       : defaultSize;
@@ -1490,9 +1646,26 @@ function ensureWeaponDialogPatched(app) {
         damageSuppressed = true;
       }
 
-      if (fields.pistolsInMelee && weapon.system?.traits?.has?.("pistol")) {
-        fields.difficulty += 2;
-        addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
+      if (fields.pistolsInMelee) {
+        const pistolTrait = weapon.system?.traits;
+        const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+
+        let allowPistolPenalty = hasPistolTrait;
+        if (allowPistolPenalty) {
+          if (typeof this._combatOptionsCanPistolsInMelee === "boolean") {
+            allowPistolPenalty = this._combatOptionsCanPistolsInMelee;
+          } else {
+            const actor = this.actor ?? this.token?.actor ?? null;
+            allowPistolPenalty = Boolean(getEngagedEffect(actor));
+          }
+        }
+
+        if (allowPistolPenalty) {
+          fields.difficulty += 2;
+          addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
+        } else {
+          fields.pistolsInMelee = false;
+        }
       }
     }
 
@@ -1671,6 +1844,29 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const actor = app.actor ?? app.token?.actor;
     const fields = app.fields ?? (app.fields = {});
+    let shouldRecompute = false;
+
+    let canPistolsInMelee = app._combatOptionsCanPistolsInMelee;
+    if (typeof canPistolsInMelee !== "boolean") {
+      const pistolTrait = app.weapon?.system?.traits;
+      const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+      const isEngaged = Boolean(getEngagedEffect(actor));
+      canPistolsInMelee = hasPistolTrait && isEngaged;
+    }
+    canPistolsInMelee = Boolean(canPistolsInMelee);
+
+    const pistolsInMeleeInput = $html.find('input[name="pistolsInMelee"]');
+    if (pistolsInMeleeInput.length) {
+      pistolsInMeleeInput.prop("disabled", !canPistolsInMelee);
+      if (!canPistolsInMelee) {
+        if (foundry.utils.getProperty(fields, "pistolsInMelee")) {
+          shouldRecompute = true;
+        }
+        pistolsInMeleeInput.prop("checked", false);
+        foundry.utils.setProperty(fields, "pistolsInMelee", false);
+      }
+    }
+
     const disableAllOutAttack = Boolean(actor?.statuses?.has?.("full-defence"));
 
     const previousAllOutAttack = foundry.utils.getProperty(fields, "allOutAttack");
@@ -1700,7 +1896,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       app._combatOptionsCoverTargetId = currentTargetId;
     }
 
-    let shouldRecompute = false;
     const defaultCover = getTargetCover(app);
     const normalizedDefaultCover = defaultCover ?? "";
     app._combatOptionsDefaultCover = defaultCover;
