@@ -342,17 +342,26 @@ function handleActorUpdate(actor, changed) {
   requestEngagedEvaluation();
 }
 
-Hooks.once("init", () => {
+function registerEngagedStatusEffect() {
   if (game.system?.id !== "wrath-and-glory") return;
   if (!Array.isArray(CONFIG.statusEffects)) return;
   const existing = CONFIG.statusEffects.some((effect) => effect?.id === ENGAGED_CONDITION_ID);
-  if (!existing) {
-    CONFIG.statusEffects.push(foundry.utils.deepClone(ENGAGED_CONDITION_CONFIG));
-  }
+  if (existing) return;
+  CONFIG.statusEffects.push(foundry.utils.deepClone(ENGAGED_CONDITION_CONFIG));
+}
+
+Hooks.once("init", () => {
+  registerEngagedStatusEffect();
+});
+
+Hooks.on("setup", () => {
+  registerEngagedStatusEffect();
 });
 
 Hooks.once("ready", () => {
   if (game.system?.id !== "wrath-and-glory") return;
+
+  registerEngagedStatusEffect();
 
   const systemEffects = game.wng?.config?.systemEffects;
   if (systemEffects && !systemEffects[ENGAGED_CONDITION_ID]) {
