@@ -393,6 +393,153 @@ function getActorIdentifier(actor, token = null) {
   return null;
 }
 
+function getCanvasMeasurementContext() {
+  const dimensions = canvas?.dimensions;
+  if (!dimensions) return null;
+
+  const distance = Number(dimensions.distance);
+  const size = Number(dimensions.size);
+  if (!Number.isFinite(distance) || !Number.isFinite(size) || distance <= 0 || size <= 0) {
+    return null;
+  }
+
+  const unitPerPixel = distance / size;
+  if (!Number.isFinite(unitPerPixel) || unitPerPixel <= 0) {
+    return null;
+  }
+
+  const pxPerUnit = 1 / unitPerPixel;
+  if (!Number.isFinite(pxPerUnit) || pxPerUnit <= 0) {
+    return null;
+  }
+
+  return {
+    unitPerPixel,
+    pxPerUnit,
+    bucketSizePx: size
+  };
+}
+
+function buildEngagementTokenData(token, measurement) {
+  if (!token?.id) return null;
+  const center = token.center;
+  if (!center) return null;
+
+  const x = Number(center.x);
+  const y = Number(center.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  const range = getTokenEngagementRange(token);
+  const rawRangePx = measurement?.pxPerUnit ? range * measurement.pxPerUnit : null;
+  const rangePx = Number.isFinite(rawRangePx) && rawRangePx >= 0 ? rawRangePx : null;
+
+  const bucketSizePx = measurement?.bucketSizePx;
+  const bucketX = bucketSizePx ? Math.floor(x / bucketSizePx) : null;
+  const bucketY = bucketSizePx ? Math.floor(y / bucketSizePx) : null;
+
+  return {
+    token,
+    id: token.id,
+    x,
+    y,
+    range,
+    rangePx,
+    bucketX: Number.isFinite(bucketX) ? bucketX : null,
+    bucketY: Number.isFinite(bucketY) ? bucketY : null
+  };
+}
+
+function collectEngagedTokenIds(friendlyTokens, hostileTokens, measurement) {
+  const engagedTokenIds = new Set();
+  if (!friendlyTokens.length || !hostileTokens.length) return engagedTokenIds;
+
+  const friendlyData = friendlyTokens
+    .map((token) => buildEngagementTokenData(token, measurement))
+    .filter(Boolean);
+  const hostileData = hostileTokens
+    .map((token) => buildEngagementTokenData(token, measurement))
+    .filter(Boolean);
+
+  if (!friendlyData.length || !hostileData.length) {
+    return engagedTokenIds;
+  }
+
+  const canBucket = Boolean(measurement?.pxPerUnit && measurement?.bucketSizePx);
+  const friendBucketed = canBucket && friendlyData.every((entry) => Number.isFinite(entry.bucketX) && Number.isFinite(entry.bucketY));
+  const hostileBucketed = canBucket && hostileData.every((entry) => Number.isFinite(entry.bucketX) && Number.isFinite(entry.bucketY));
+
+  if (friendBucketed && hostileBucketed) {
+    const bucketSizePx = measurement.bucketSizePx;
+    const pxPerUnit = measurement.pxPerUnit;
+
+    let maxRangePx = 0;
+    for (const entry of [...friendlyData, ...hostileData]) {
+      if (Number.isFinite(entry.rangePx) && entry.rangePx > maxRangePx) {
+        maxRangePx = entry.rangePx;
+      }
+    }
+
+    const bucketRadius = Math.max(0, Math.ceil(maxRangePx / bucketSizePx));
+    const hostileBuckets = new Map();
+
+    for (const hostile of hostileData) {
+      const key = `${hostile.bucketX},${hostile.bucketY}`;
+      const bucket = hostileBuckets.get(key);
+      if (bucket) {
+        bucket.push(hostile);
+      } else {
+        hostileBuckets.set(key, [hostile]);
+      }
+    }
+
+    for (const friendly of friendlyData) {
+      for (let bx = friendly.bucketX - bucketRadius; bx <= friendly.bucketX + bucketRadius; bx++) {
+        for (let by = friendly.bucketY - bucketRadius; by <= friendly.bucketY + bucketRadius; by++) {
+          const candidates = hostileBuckets.get(`${bx},${by}`);
+          if (!candidates?.length) continue;
+
+          for (const hostile of candidates) {
+            const threshold = Math.max(friendly.range, hostile.range);
+            if (!Number.isFinite(threshold) || threshold <= 0) continue;
+
+            const thresholdPx = threshold * pxPerUnit;
+            const dx = hostile.x - friendly.x;
+            const dy = hostile.y - friendly.y;
+
+            if (Math.abs(dx) > thresholdPx || Math.abs(dy) > thresholdPx) continue;
+            if ((dx * dx + dy * dy) > (thresholdPx * thresholdPx)) continue;
+
+            engagedTokenIds.add(friendly.id);
+            engagedTokenIds.add(hostile.id);
+          }
+        }
+      }
+    }
+
+    if (engagedTokenIds.size) {
+      return engagedTokenIds;
+    }
+  }
+
+  for (const friendly of friendlyData) {
+    for (const hostile of hostileData) {
+      if (tokensAreEngaged(friendly.token, hostile.token, measurement)) {
+        engagedTokenIds.add(friendly.id);
+        engagedTokenIds.add(hostile.id);
+      }
+    }
+  }
+
+  return engagedTokenIds;
+}
+
+function getActorIdentifier(actor, token = null) {
+  if (actor?.id) return actor.id;
+  if (actor?.uuid) return actor.uuid;
+  if (token?.id) return token.id;
+  return null;
+}
+
 function getEngagedEffect(actor) {
   if (!actor) return null;
 
