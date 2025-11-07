@@ -40,6 +40,12 @@ const COMBAT_OPTION_LABELS = {
   calledShotDisarm: "Disarm (No damage)"
 };
 
+const COVER_DIFFICULTY_VALUES = {
+  "": 0,
+  half: 1,
+  full: 2
+};
+
 // Modifiers applied when attacking in different light levels. Each entry stores the
 // label shown to the user as well as the ranged/melee penalty applied to the roll.
 const VISION_PENALTIES = {
@@ -113,6 +119,24 @@ function getEngagementRangeForSize(sizeKey) {
   const index = SIZE_ENGAGEMENT_SEQUENCE.indexOf(sizeKey);
   if (index === -1 || SIZE_AVERAGE_INDEX === -1) return 2;
   return 2 + Math.max(0, index - SIZE_AVERAGE_INDEX);
+}
+
+function normalizeCoverKey(value) {
+  if (!value) return "";
+  const key = String(value).trim().toLowerCase();
+  return key === "half" || key === "full" ? key : "";
+}
+
+function getCoverDifficulty(value) {
+  const key = normalizeCoverKey(value);
+  return COVER_DIFFICULTY_VALUES[key] ?? 0;
+}
+
+function getCoverLabel(value) {
+  const key = normalizeCoverKey(value);
+  if (key === "half") return COMBAT_OPTION_LABELS.halfCover;
+  if (key === "full") return COMBAT_OPTION_LABELS.fullCover;
+  return null;
 }
 
 function getTokenEngagementRange(token) {
@@ -1502,12 +1526,14 @@ function ensureWeaponDialogPatched(app) {
       damageSuppressed = true;
     }
 
-    if (fields.cover === "half") {
-      fields.difficulty += 1;
-      addTooltip("difficulty", 1, COMBAT_OPTION_LABELS.halfCover);
-    } else if (fields.cover === "full") {
-      fields.difficulty += 2;
-      addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.fullCover);
+    const statusCover = normalizeCoverKey(this._combatOptionsDefaultCover ?? getTargetCover(this));
+    const selectedCover = normalizeCoverKey(fields.cover);
+    const coverDelta = getCoverDifficulty(selectedCover) - getCoverDifficulty(statusCover);
+
+    if (coverDelta !== 0) {
+      fields.difficulty += coverDelta;
+      const label = getCoverLabel(coverDelta > 0 ? selectedCover : statusCover);
+      if (label) addTooltip("difficulty", coverDelta, label);
     }
 
     // Restore the weapon's base damage dice if no option has explicitly zeroed them out.
