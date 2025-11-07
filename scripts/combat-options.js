@@ -1297,6 +1297,18 @@ function ensureWeaponDialogPatched(app) {
       fields.pinning = false;
     }
 
+    const actor = this.actor ?? this.token?.actor ?? null;
+    const isEngaged = Boolean(getEngagedEffect(actor));
+    const pistolTrait = weapon?.system?.traits;
+    const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+    const canPistolsInMelee = Boolean(isEngaged && hasPistolTrait);
+
+    this._combatOptionsCanPistolsInMelee = canPistolsInMelee;
+
+    if (!canPistolsInMelee && fields.pistolsInMelee) {
+      fields.pistolsInMelee = false;
+    }
+
     context.combatOptionsOpen = Boolean(
       fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
       fields.fallBack || fields.brace || (canPinning && fields.pinning) ||
@@ -1490,9 +1502,26 @@ function ensureWeaponDialogPatched(app) {
         damageSuppressed = true;
       }
 
-      if (fields.pistolsInMelee && weapon.system?.traits?.has?.("pistol")) {
-        fields.difficulty += 2;
-        addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
+      if (fields.pistolsInMelee) {
+        const pistolTrait = weapon.system?.traits;
+        const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+
+        let allowPistolPenalty = hasPistolTrait;
+        if (allowPistolPenalty) {
+          if (typeof this._combatOptionsCanPistolsInMelee === "boolean") {
+            allowPistolPenalty = this._combatOptionsCanPistolsInMelee;
+          } else {
+            const actor = this.actor ?? this.token?.actor ?? null;
+            allowPistolPenalty = Boolean(getEngagedEffect(actor));
+          }
+        }
+
+        if (allowPistolPenalty) {
+          fields.difficulty += 2;
+          addTooltip("difficulty", 2, COMBAT_OPTION_LABELS.pistolsInMelee);
+        } else {
+          fields.pistolsInMelee = false;
+        }
       }
     }
 
@@ -1671,6 +1700,29 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const actor = app.actor ?? app.token?.actor;
     const fields = app.fields ?? (app.fields = {});
+    let shouldRecompute = false;
+
+    let canPistolsInMelee = app._combatOptionsCanPistolsInMelee;
+    if (typeof canPistolsInMelee !== "boolean") {
+      const pistolTrait = app.weapon?.system?.traits;
+      const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
+      const isEngaged = Boolean(getEngagedEffect(actor));
+      canPistolsInMelee = hasPistolTrait && isEngaged;
+    }
+    canPistolsInMelee = Boolean(canPistolsInMelee);
+
+    const pistolsInMeleeInput = $html.find('input[name="pistolsInMelee"]');
+    if (pistolsInMeleeInput.length) {
+      pistolsInMeleeInput.prop("disabled", !canPistolsInMelee);
+      if (!canPistolsInMelee) {
+        if (foundry.utils.getProperty(fields, "pistolsInMelee")) {
+          shouldRecompute = true;
+        }
+        pistolsInMeleeInput.prop("checked", false);
+        foundry.utils.setProperty(fields, "pistolsInMelee", false);
+      }
+    }
+
     const disableAllOutAttack = Boolean(actor?.statuses?.has?.("full-defence"));
 
     const previousAllOutAttack = foundry.utils.getProperty(fields, "allOutAttack");
@@ -1700,7 +1752,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       app._combatOptionsCoverTargetId = currentTargetId;
     }
 
-    let shouldRecompute = false;
     const defaultCover = getTargetCover(app);
     const normalizedDefaultCover = defaultCover ?? "";
     app._combatOptionsDefaultCover = defaultCover;
