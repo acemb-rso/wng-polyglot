@@ -129,6 +129,12 @@ function getTokenDisposition(token) {
   return 0;
 }
 
+function tokenIsDefeated(token) {
+  const actor = token?.actor ?? token?.document?.actor ?? null;
+  if (!actor) return false;
+  return actorHasStatus(actor, "dead");
+}
+
 function getTokenRadius(token, measurement) {
   if (!token) return 0;
 
@@ -545,10 +551,11 @@ async function evaluateEngagedConditions() {
   if (!actorMap.size) return;
 
   const visibleTokens = tokensWithActors.filter((token) => !(token.document?.hidden ?? token.hidden));
+  const eligibleTokens = visibleTokens.filter((token) => !tokenIsDefeated(token));
   const friendlyTokens = [];
   const hostileTokens = [];
 
-  for (const token of visibleTokens) {
+  for (const token of eligibleTokens) {
     const disposition = getTokenDisposition(token);
     if (disposition > 0) {
       friendlyTokens.push(token);
