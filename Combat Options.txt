@@ -56,7 +56,7 @@ You can activate Full Defence as a Reflexive Action. If you do so, you can’t p
 
 # Combat Modifiers
 ## Engaged Targets
-Combatants who are within their opponent’s melee range (2 meters unless for a normal medium character) are considered to be Engaged in close combat.  If you are Engaged in close combat, you can only attack targets you are Engaged with.
+Combatants who are within their opponent’s melee range (1 meter unless for a normal medium character) are considered to be Engaged in close combat.  If you are Engaged in close combat, you can only attack targets you are Engaged with.
 
 ## Pistols In Melee
 You can fire a weapon with the Pistol Trait when Engaged in close combat. Any Ballistic Skill (A) Tests you make while you are Engaged suffer a +2 DN penalty. You can’t Aim and don’t gain a bonus for being in Short Range, but you can use other ranged combat options and weapon traits, such as Rapid Fire.

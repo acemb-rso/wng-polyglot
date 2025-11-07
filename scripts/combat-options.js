@@ -117,8 +117,8 @@ function getTokenCombatSize(token) {
 
 function getEngagementRangeForSize(sizeKey) {
   const index = SIZE_ENGAGEMENT_SEQUENCE.indexOf(sizeKey);
-  if (index === -1 || SIZE_AVERAGE_INDEX === -1) return 2;
-  return 2 + Math.max(0, index - SIZE_AVERAGE_INDEX);
+  if (index === -1 || SIZE_AVERAGE_INDEX === -1) return 1;
+  return 1 + Math.max(0, index - SIZE_AVERAGE_INDEX);
 }
 
 function normalizeCoverKey(value) {
