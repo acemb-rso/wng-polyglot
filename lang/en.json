@@ -14,5 +14,6 @@
   "WNG.PersistentDamage.ChatFallback": "{name} suffers {amount} Mortal Wounds from persistent damage.",
   "WNG.Common.And": "and",
   "WNG.SlowedConditions.ChatReminder": "{name} is slowed by {conditions}.",
-  "WNG.SlowedConditions.UnknownName": "this combatant"
+  "WNG.SlowedConditions.UnknownName": "this combatant",
+  "WNGCE.Condition.Engaged": "Engaged"
 }
