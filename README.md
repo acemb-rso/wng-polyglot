@@ -1,13 +1,14 @@
 # Wrath & Glory – Combat Extender
 
-Wrath & Glory – Combat Extender is a lightweight [Foundry Virtual Tabletop](https://foundryvtt.com/) module that augments the Wrath & Glory weapon attack dialog with the combat options and situational modifiers from the tabletop rules. The module integrates the extra controls directly into the existing dialog so players can apply bonuses and penalties without manual arithmetic or house-rule macros.
+Wrath & Glory – Combat Extender is a lightweight [Foundry Virtual Tabletop](https://foundryvtt.com/) module that augments the Wrath & Glory weapon attack dialog with the combat options and situational modifiers from the tabletop rules. The module keeps the experience diegetic by extending the existing dialog, automating common condition bookkeeping, and staying out of the way once play begins.
 
 ## Features
 
 - **Enhanced attack dialog** – Adds toggles for All-Out Attack, Charge, Grapple, Fall Back, Aim, Brace, Pinning Attacks, Pistols in Melee, Disarm, and Called Shot (with size selector) alongside drop-downs for cover, vision penalties, and target size. The options mirror the printed rules and automatically recalculate dice pools, DN, and damage whenever they change.
-- **Context-aware defaults** – Reads the first targeted token to pre-fill the target size and cover selectors, including Half/Full cover detection from token conditions, and honours manual overrides until the dialog closes.
-- **All-Out Attack condition sync** – When All-Out Attack is toggled the module applies or removes the system condition on the attacking actor, ensuring Defences update correctly between turns and clearing the effect when combat ends.
-- **Persistent damage automation** – At the end of a combatant’s turn the primary GM is prompted to apply Mortal Wounds for persistent damage sources such as Bleeding or On Fire, with automatic roll evaluation for formula-based effects and chat card output.
+- **Context-aware defaults** – Reads the first targeted token to pre-fill the target size and cover selectors (including Half/Full cover detection from token conditions). Manual overrides stick until the dialog closes so players stay in control.
+- **All-Out Attack automation** – Toggling All-Out Attack applies or clears the matching Wrath & Glory condition on the attacking actor. The effect is removed automatically at the start of the combatant’s next turn or when combat ends to keep Defences consistent.
+- **Automatic Engaged tracking** – The primary GM has engaged status handled automatically. The module registers the Engaged condition, watches token movement on the active scene, and applies/removes the condition when friendly and hostile tokens come within the correct reach (respecting token size and defeat/hidden states). It gracefully falls back if the system’s aura helpers are unavailable.
+- **Persistent damage helpers** – At the end of a combatant’s turn the primary GM is prompted to apply Mortal Wounds for persistent damage sources such as Bleeding or On Fire, with automatic roll evaluation for formula-based effects and chat card output.
 - **Slowed condition reminders** – Notifies the table when a combatant starting their turn is Exhausted, Hindered, Restrained, or Staggered so the GM can apply the appropriate penalties.
 
 ## Requirements
@@ -32,7 +33,7 @@ The GitHub repository also provides a ZIP download if you prefer manual installa
 3. Toggle the relevant options – the module recalculates dice pools, DN, damage, and extra damage dice immediately and refreshes the visible inputs.
 4. Options with prerequisites (e.g. Pinning Attacks requiring Salvo 2+) enable or disable themselves automatically as your weapon configuration changes.
 
-During combat the module keeps track of persistent damage and slowed conditions. When a combatant’s turn ends, a dialog prompts the GM to apply the calculated Mortal Wounds, including die rolls for configurable formulas; reminders for slowed statuses are whispered to GMs and posted to chat depending on party settings.
+Outside of the dialog the module keeps tabs on combat flow: the primary GM receives prompts for persistent damage, Engaged is applied/cleared automatically as combatants move, and slowed status reminders are whispered when turns begin.
 
 ## Localization
 
