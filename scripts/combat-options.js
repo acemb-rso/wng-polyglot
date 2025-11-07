@@ -65,6 +65,18 @@ const SIZE_MODIFIER_OPTIONS = {
 // the declared options.
 const SIZE_OPTION_KEYS = new Set(Object.keys(SIZE_MODIFIER_OPTIONS));
 
+const SIZE_ENGAGEMENT_SEQUENCE = ["tiny", "small", "average", "large", "huge", "gargantuan"];
+const SIZE_AVERAGE_INDEX = SIZE_ENGAGEMENT_SEQUENCE.indexOf("average");
+
+const ENGAGED_CONDITION_ID = "engaged";
+const ENGAGED_CONDITION_FLAG_SOURCE = "auto-engaged";
+const ENGAGED_CONDITION_CONFIG = {
+  id: ENGAGED_CONDITION_ID,
+  statuses: [ENGAGED_CONDITION_ID],
+  name: "WNGCE.Condition.Engaged",
+  img: "icons/skills/melee/weapons-crossed-swords-black-gray.webp"
+};
+
 const PERSISTENT_DAMAGE_CONDITIONS = {
   onfire: {
     id: "onfire",
@@ -84,6 +96,299 @@ const SLOWED_CONDITIONS = [
   { id: "restrained", labelKey: "CONDITION.Restrained" },
   { id: "staggered", labelKey: "CONDITION.Staggered" }
 ];
+
+function getActorCombatSize(actor) {
+  if (!actor) return "average";
+  const size = actor.system?.combat?.size ?? actor.system?.size ?? actor.size;
+  return normalizeSizeKey(size);
+}
+
+function getTokenCombatSize(token) {
+  if (!token) return "average";
+  const actor = token.actor ?? token?.document?.actor ?? null;
+  return getActorCombatSize(actor);
+}
+
+function getEngagementRangeForSize(sizeKey) {
+  const index = SIZE_ENGAGEMENT_SEQUENCE.indexOf(sizeKey);
+  if (index === -1 || SIZE_AVERAGE_INDEX === -1) return 2;
+  return 2 + Math.max(0, index - SIZE_AVERAGE_INDEX);
+}
+
+function getTokenEngagementRange(token) {
+  const sizeKey = getTokenCombatSize(token);
+  return getEngagementRangeForSize(sizeKey);
+}
+
+function measureTokenDistance(tokenA, tokenB) {
+  if (!tokenA || !tokenB) return Infinity;
+  const grid = canvas?.grid;
+  if (!grid) return Infinity;
+  if (typeof Ray !== "function") return Infinity;
+
+  try {
+    const ray = new Ray(tokenA.center, tokenB.center);
+    const distances = grid.measureDistances([{ ray }], { gridSpaces: false });
+    const value = distances?.[0];
+    return Number.isFinite(value) ? value : Infinity;
+  } catch (err) {
+    logError("Failed to measure token distance", err);
+    return Infinity;
+  }
+}
+
+function tokensAreEngaged(tokenA, tokenB) {
+  if (!tokenA || !tokenB) return false;
+  const threshold = Math.max(getTokenEngagementRange(tokenA), getTokenEngagementRange(tokenB));
+  if (!Number.isFinite(threshold) || threshold <= 0) return false;
+
+  const distance = measureTokenDistance(tokenA, tokenB);
+  if (!Number.isFinite(distance)) return false;
+
+  return distance <= threshold;
+}
+
+function getEngagedEffect(actor) {
+  if (!actor) return null;
+
+  if (typeof actor.hasCondition === "function") {
+    const effect = actor.hasCondition(ENGAGED_CONDITION_ID);
+    if (effect) return effect;
+  }
+
+  const effects = actor.effects;
+  if (Array.isArray(effects)) {
+    return effects.find((effect) => effect?.statuses?.has?.(ENGAGED_CONDITION_ID)) ?? null;
+  }
+
+  return null;
+}
+
+async function syncEngagedCondition(actor, engaged) {
+  if (!actor || typeof actor !== "object") return;
+
+  const existingEffect = getEngagedEffect(actor);
+  const hasEffect = Boolean(existingEffect);
+
+  if (engaged) {
+    if (hasEffect) return;
+    if (typeof actor.addCondition !== "function") return;
+    try {
+      await actor.addCondition(ENGAGED_CONDITION_ID, { [MODULE_ID]: { source: ENGAGED_CONDITION_FLAG_SOURCE } });
+    } catch (err) {
+      logError("Failed to add Engaged condition", err);
+    }
+    return;
+  }
+
+  if (!hasEffect) return;
+
+  const flagSource = existingEffect?.getFlag?.(MODULE_ID, "source")
+    ?? existingEffect?.flags?.[MODULE_ID]?.source;
+
+  if (flagSource && flagSource !== ENGAGED_CONDITION_FLAG_SOURCE) {
+    return;
+  }
+
+  if (typeof existingEffect?.delete === "function") {
+    try {
+      await existingEffect.delete();
+    } catch (err) {
+      logError("Failed to remove Engaged condition", err);
+    }
+    return;
+  }
+
+  if (typeof actor.removeCondition === "function") {
+    try {
+      await actor.removeCondition(ENGAGED_CONDITION_ID);
+    } catch (err) {
+      logError("Failed to remove Engaged condition", err);
+    }
+  }
+}
+
+function shouldAutoApplyEngaged() {
+  return game.system?.id === "wrath-and-glory" && isActivePrimaryGM();
+}
+
+async function evaluateEngagedConditions() {
+  if (!shouldAutoApplyEngaged()) return;
+  const tokensLayer = canvas?.tokens;
+  if (!tokensLayer) return;
+
+  const tokens = Array.isArray(tokensLayer.placeables) ? tokensLayer.placeables : [];
+  if (!tokens.length) return;
+
+  const actorMap = new Map();
+  const friendlyTokens = [];
+  const hostileTokens = [];
+
+  for (const token of tokens) {
+    const actor = token?.actor;
+    if (!actor) continue;
+    actorMap.set(actor.id, actor);
+
+    if (token.document?.hidden) continue;
+
+    const disposition = token.document?.disposition ?? token.disposition ?? 0;
+    if (disposition > 0) {
+      friendlyTokens.push(token);
+    } else if (disposition < 0) {
+      hostileTokens.push(token);
+    }
+  }
+
+  const engagedActorIds = new Set();
+  if (friendlyTokens.length && hostileTokens.length) {
+    for (const friendly of friendlyTokens) {
+      for (const hostile of hostileTokens) {
+        if (tokensAreEngaged(friendly, hostile)) {
+          if (friendly.actor) engagedActorIds.add(friendly.actor.id);
+          if (hostile.actor) engagedActorIds.add(hostile.actor.id);
+        }
+      }
+    }
+  }
+
+  const operations = [];
+  for (const actor of actorMap.values()) {
+    const shouldBeEngaged = engagedActorIds.has(actor.id);
+    operations.push(syncEngagedCondition(actor, shouldBeEngaged));
+  }
+
+  if (operations.length) {
+    await Promise.allSettled(operations);
+  }
+}
+
+const requestEngagedEvaluation = (() => {
+  const debounced = foundry.utils.debounce(() => {
+    if (!canvas?.ready) return;
+    const maybePromise = evaluateEngagedConditions();
+    if (maybePromise?.catch) {
+      maybePromise.catch((err) => logError("Failed to evaluate Engaged conditions", err));
+    }
+  }, 100);
+
+  return () => debounced();
+})();
+
+function resolveSceneId(sceneLike) {
+  if (!sceneLike) return null;
+  if (typeof sceneLike.id === "string") return sceneLike.id;
+  if (sceneLike.scene) return resolveSceneId(sceneLike.scene);
+  if (sceneLike.parent) return resolveSceneId(sceneLike.parent);
+  if (sceneLike.document) return resolveSceneId(sceneLike.document);
+  return null;
+}
+
+function isActiveScene(sceneLike) {
+  const currentSceneId = canvas?.scene?.id;
+  if (!currentSceneId) return false;
+  const targetSceneId = resolveSceneId(sceneLike);
+  return targetSceneId === currentSceneId;
+}
+
+function handleTokenChange(scene) {
+  if (game.system?.id !== "wrath-and-glory") return;
+  if (scene && !isActiveScene(scene)) return;
+  requestEngagedEvaluation();
+}
+
+function handleTokenDeletion(scene, tokenDocument) {
+  if (game.system?.id !== "wrath-and-glory") return;
+  if (scene && !isActiveScene(scene)) return;
+
+  const actor = tokenDocument?.actor ?? null;
+  if (!actor) return;
+
+  const activeTokens = typeof actor.getActiveTokens === "function"
+    ? actor.getActiveTokens(true)
+    : [];
+
+  const stillOnScene = activeTokens.some((token) => {
+    const sceneRef = token?.scene ?? token?.document?.parent ?? token?.parent;
+    return isActiveScene(sceneRef);
+  });
+
+  if (stillOnScene) return;
+
+  const maybePromise = syncEngagedCondition(actor, false);
+  if (maybePromise?.catch) {
+    maybePromise.catch((err) => logError("Failed to remove Engaged condition after token deletion", err));
+  }
+}
+
+function handleActorUpdate(actor, changed) {
+  if (game.system?.id !== "wrath-and-glory") return;
+  if (!changed) return;
+
+  const hasSizeChange = foundry.utils.hasProperty?.(changed, "system.combat.size")
+    || foundry.utils.hasProperty?.(changed, "system.size")
+    || Object.prototype.hasOwnProperty.call(changed, "size");
+
+  if (!hasSizeChange) return;
+
+  const activeTokens = typeof actor?.getActiveTokens === "function"
+    ? actor.getActiveTokens(true)
+    : [];
+
+  if (!activeTokens.some((token) => {
+    const sceneRef = token?.scene ?? token?.document?.parent ?? token?.parent;
+    return isActiveScene(sceneRef);
+  })) return;
+
+  requestEngagedEvaluation();
+}
+
+function registerEngagedStatusEffect() {
+  if (game.system?.id !== "wrath-and-glory") return;
+  if (!Array.isArray(CONFIG.statusEffects)) return;
+  const existing = CONFIG.statusEffects.some((effect) => effect?.id === ENGAGED_CONDITION_ID);
+  if (existing) return;
+  CONFIG.statusEffects.push(foundry.utils.deepClone(ENGAGED_CONDITION_CONFIG));
+}
+
+Hooks.once("init", () => {
+  registerEngagedStatusEffect();
+});
+
+Hooks.on("setup", () => {
+  registerEngagedStatusEffect();
+});
+
+Hooks.once("ready", () => {
+  if (game.system?.id !== "wrath-and-glory") return;
+
+  registerEngagedStatusEffect();
+
+  const systemEffects = game.wng?.config?.systemEffects;
+  if (systemEffects && !systemEffects[ENGAGED_CONDITION_ID]) {
+    systemEffects[ENGAGED_CONDITION_ID] = foundry.utils.deepClone(ENGAGED_CONDITION_CONFIG);
+  }
+
+  requestEngagedEvaluation();
+});
+
+Hooks.on("canvasReady", () => {
+  if (game.system?.id !== "wrath-and-glory") return;
+  requestEngagedEvaluation();
+});
+
+Hooks.on("updateUser", () => {
+  if (game.system?.id !== "wrath-and-glory") return;
+  requestEngagedEvaluation();
+});
+
+Hooks.on("createToken", (scene) => handleTokenChange(scene));
+Hooks.on("updateToken", (scene) => handleTokenChange(scene));
+Hooks.on("deleteToken", (scene, tokenDocument) => {
+  handleTokenChange(scene);
+  handleTokenDeletion(scene, tokenDocument);
+});
+
+Hooks.on("updateActor", (actor, changed) => handleActorUpdate(actor, changed));
 
 function normalizeSizeKey(size) {
   if (!size) return "average";
