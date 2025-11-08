@@ -478,7 +478,10 @@ function injectActorSheetButton(app, html) {
   try {
     if (game.system.id !== "wrath-and-glory") return;
     const element = html instanceof jQuery ? html[0] : html;
-    const header = element?.querySelector?.(".sheet-header .header-actions, .sheet-header .header-buttons, .sheet-header .header-controls");
+    const header =
+      element?.querySelector?.(
+        ".sheet-header .header-actions, .sheet-header .header-buttons, .sheet-header .header-controls, .sheet-header"
+      ) ?? null;
     if (!header) return;
     if (header.querySelector('[data-wngce-contested]')) return;
 
@@ -501,7 +504,9 @@ function injectActorSheetButton(app, html) {
 Hooks.once("init", () => {
   const api = ensureApi();
   api.contestedRoll = contestedRoll;
-  Hooks.on("renderActorSheet", injectActorSheetButton);
+  for (const hookName of ["renderActorSheet", "renderActorSheetV2", "renderWarhammerActorSheetV2", "renderWnGActorSheet"]) {
+    Hooks.on(hookName, injectActorSheetButton);
+  }
   log("log", "Contested roll helper initialised");
 });
 
