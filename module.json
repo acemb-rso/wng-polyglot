@@ -14,7 +14,10 @@
 		"minimum": "12",
 		"verified": "13"
 	},
-        "esmodules": ["scripts/combat-options.js"],
+        "esmodules": [
+                "scripts/combat-options.js",
+                "scripts/contested-roll.js"
+        ],
         "styles": ["styles/combat-options.css"],
         "languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
         "templates": [
