@@ -35,6 +35,16 @@ The GitHub repository also provides a ZIP download if you prefer manual installa
 
 Outside of the dialog the module keeps tabs on combat flow: the primary GM receives prompts for persistent damage, Engaged is applied/cleared automatically as combatants move, and slowed status reminders are whispered when turns begin.
 
+### Contested tests
+
+The module also exposes a helper for opposed checks. Drag a macro with the following command onto your hotbar to launch the workflow at any time:
+
+```js
+game.wngCombatExtender?.contestedRoll();
+```
+
+Running the macro presents a dialog where you can pick two actors, select the relevant skills or attributes for each side, and hand out bonus dice for situational modifiers (anything that would normally increase DN). Wrath dice are optional—leave them at zero unless you want the chance of complications. Both tests are resolved simultaneously using Wrath & Glory dice, ties automatically go to the initiating character, and the chat log summarizes icons, shifts, and any Wrath criticals or complications. Actor sheets gain a **Contested Roll** button in their header for quicker access.
+
 ## Localization
 
 English strings are bundled with the module. You can add additional translations by mirroring `lang/en.json` and registering the language in `module.json`. Contributions are welcome!
