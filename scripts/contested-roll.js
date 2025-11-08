@@ -115,6 +115,26 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+async function showDiceSoNiceRolls(...rolls) {
+  try {
+    const dice3d = game?.dice3d ?? null;
+    if (!dice3d) return;
+
+    const readyFn = typeof dice3d.isDice3dReady === "function" ? dice3d.isDice3dReady.bind(dice3d) : null;
+    if (readyFn && !readyFn()) return;
+
+    const showFn = typeof dice3d.showForRoll === "function" ? dice3d.showForRoll.bind(dice3d) : null;
+    if (!showFn) return;
+
+    for (const roll of rolls.flat()) {
+      if (!roll) continue;
+      await showFn(roll, game.user, true);
+    }
+  } catch (err) {
+    logError("Failed to display Dice So Nice animation", err);
+  }
+}
+
 function createRollTerms(poolDice, wrathDice) {
   const terms = [];
   const hasPool = poolDice > 0;
@@ -455,6 +475,8 @@ async function contestedRoll(initial = {}) {
                   wrathDice: defenderWrath
                 })
               ]);
+
+              await showDiceSoNiceRolls(attackerResult.roll, defenderResult.roll);
 
               const summaryHtml = await buildChatSummary(attackerResult, defenderResult, { initiator });
               const speakerActor = attackerActor ?? defenderActor ?? null;
