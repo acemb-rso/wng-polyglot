@@ -160,6 +160,21 @@
   color: #999;
 }
 
+.wrath-and-glory .sheet-header .wngce-contested-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+.wrath-and-glory .sheet-header .wngce-contested-button i {
+  margin: 0;
+}
+
 /* Theme-specific styles */
 body.wng-theme .warhammer.roll-dialog-v2 details.combat-options > summary {
   background: var(--color-imperium, #8b0000);
