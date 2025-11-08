@@ -138,21 +138,19 @@ function extractDiceResults(roll) {
   return roll.dice.flatMap((term) => Array.isArray(term.results) ? term.results.filter((result) => result?.active !== false) : []);
 }
 
-function summarizeRoll({ actor, roll, traitLabel, dn, totalDice, wrathDice, bonusDice, baseDice }) {
+function summarizeRoll({ actor, roll, traitLabel, totalDice, wrathDice, bonusDice, baseDice }) {
   const results = extractDiceResults(roll);
-  const successes = results.reduce((sum, result) => sum + (Number(result?.value) || 0), 0);
+  const icons = results.reduce((sum, result) => sum + (Number(result?.value) || 0), 0);
   const iconCount = results.filter((result) => result?.name === "icon" || result?.name === "wrath-critical").length;
   const wrathCritical = results.some((result) => result?.name === "wrath-critical");
   const wrathComplication = results.some((result) => result?.name === "wrath-complication");
-  const shiftPotential = Math.max(0, successes - dn);
 
   return {
     actor,
     traitLabel,
     roll,
-    successes,
-    dn,
-    shiftPotential,
+    icons,
+    shiftPotential: 0,
     wrathCritical,
     wrathComplication,
     iconCount,
@@ -164,10 +162,10 @@ function summarizeRoll({ actor, roll, traitLabel, dn, totalDice, wrathDice, bonu
   };
 }
 
-async function executeTraitRoll({ actor, traitType, traitKey, bonusDice, dn, wrathDice }) {
+async function executeTraitRoll({ actor, traitType, traitKey, bonusDice, wrathDice }) {
   const baseDice = getActorTraitValue(actor, traitType, traitKey);
   const totalDice = Math.max(0, baseDice + bonusDice);
-  const normalizedWrath = clamp(wrathDice ?? 1, 0, totalDice);
+  const normalizedWrath = clamp(wrathDice ?? 0, 0, totalDice);
   const poolDice = Math.max(0, totalDice - normalizedWrath);
 
   const terms = createRollTerms(poolDice, normalizedWrath);
@@ -182,7 +180,6 @@ async function executeTraitRoll({ actor, traitType, traitKey, bonusDice, dn, wra
     actor,
     roll,
     traitLabel,
-    dn,
     totalDice,
     wrathDice: normalizedWrath,
     bonusDice,
@@ -229,11 +226,7 @@ function buildDialogContent(state, actorOptions, traitOptions) {
       </div>
       <div class="form-group">
         <label>${game.i18n.localize("WNGCE.ContestedRoll.AttackerWrath")}</label>
-        <input type="number" name="attackerWrath" value="${state.attackerWrath ?? 1}" min="0" step="1" />
-      </div>
-      <div class="form-group">
-        <label>${game.i18n.localize("WNGCE.ContestedRoll.AttackerDn")}</label>
-        <input type="number" name="attackerDn" value="${state.attackerDn ?? 3}" min="0" step="1" />
+        <input type="number" name="attackerWrath" value="${state.attackerWrath ?? 0}" min="0" step="1" />
       </div>
       <hr />
       <div class="form-group">
@@ -250,11 +243,15 @@ function buildDialogContent(state, actorOptions, traitOptions) {
       </div>
       <div class="form-group">
         <label>${game.i18n.localize("WNGCE.ContestedRoll.DefenderWrath")}</label>
-        <input type="number" name="defenderWrath" value="${state.defenderWrath ?? 1}" min="0" step="1" />
+        <input type="number" name="defenderWrath" value="${state.defenderWrath ?? 0}" min="0" step="1" />
       </div>
+      <hr />
       <div class="form-group">
-        <label>${game.i18n.localize("WNGCE.ContestedRoll.DefenderDn")}</label>
-        <input type="number" name="defenderDn" value="${state.defenderDn ?? 3}" min="0" step="1" />
+        <label>${game.i18n.localize("WNGCE.ContestedRoll.Initiator")}</label>
+        <select name="initiator" required>
+          <option value="attacker"${state.initiator === "attacker" ? " selected" : ""}>${game.i18n.localize("WNGCE.ContestedRoll.InitiatorAttacker")}</option>
+          <option value="defender"${state.initiator === "defender" ? " selected" : ""}>${game.i18n.localize("WNGCE.ContestedRoll.InitiatorDefender")}</option>
+        </select>
       </div>
       <p class="notes">${game.i18n.localize("WNGCE.ContestedRoll.DialogHint")}</p>
     </form>
@@ -274,14 +271,42 @@ function resolveActor(actorId) {
   return game.actors?.get(actorId) ?? null;
 }
 
-async function buildChatSummary(attackerResult, defenderResult) {
+async function buildChatSummary(attackerResult, defenderResult, { initiator } = {}) {
   const attackerRollHtml = attackerResult.roll ? await attackerResult.roll.render() : "";
   const defenderRollHtml = defenderResult.roll ? await defenderResult.roll.render() : "";
 
-  const winner = attackerResult.successes === defenderResult.successes
-    ? null
-    : (attackerResult.successes > defenderResult.successes ? attackerResult : defenderResult);
-  const margin = winner ? Math.abs(attackerResult.successes - defenderResult.successes) : 0;
+  const attackerIcons = attackerResult.icons;
+  const defenderIcons = defenderResult.icons;
+  let winner = null;
+  let loser = null;
+  let margin = 0;
+  let tieBreaker = false;
+
+  if (attackerIcons > defenderIcons) {
+    winner = attackerResult;
+    loser = defenderResult;
+    margin = attackerIcons - defenderIcons;
+  } else if (defenderIcons > attackerIcons) {
+    winner = defenderResult;
+    loser = attackerResult;
+    margin = defenderIcons - attackerIcons;
+  } else {
+    tieBreaker = true;
+    if (initiator === "defender") {
+      winner = defenderResult;
+      loser = attackerResult;
+    } else {
+      winner = attackerResult;
+      loser = defenderResult;
+    }
+  }
+
+  if (winner) {
+    winner.shiftPotential = margin;
+  }
+  if (loser) {
+    loser.shiftPotential = 0;
+  }
 
   const formatHeader = (result) => {
     const actorName = foundry.utils.escapeHTML(result.actor?.name ?? game.i18n.localize("WNGCE.ContestedRoll.UnknownActor"));
@@ -304,7 +329,7 @@ async function buildChatSummary(attackerResult, defenderResult) {
         <div class="meta">
           <span>${game.i18n.format("WNGCE.ContestedRoll.TotalDice", { count: result.totalDice })}</span>
           <span>${game.i18n.format("WNGCE.ContestedRoll.WrathDice", { count: result.wrathDice })}</span>
-          <span>${game.i18n.format("WNGCE.ContestedRoll.Successes", { count: result.successes, dn: result.dn })}</span>
+          <span>${game.i18n.format("WNGCE.ContestedRoll.Icons", { count: result.icons })}</span>
         </div>
         <div class="tags">${formatTags(result)}</div>
       </header>
@@ -312,18 +337,18 @@ async function buildChatSummary(attackerResult, defenderResult) {
     `;
   };
 
-  const winnerLine = winner
-    ? game.i18n.format("WNGCE.ContestedRoll.WinnerLine", {
-        name: winner.actor?.name ?? game.i18n.localize("WNGCE.ContestedRoll.UnknownActor"),
-        margin
-      })
-    : game.i18n.localize("WNGCE.ContestedRoll.TieLine");
-
   return `
     <section class="wngce-contested-summary">
       <div class="result attacker">${renderDetails(attackerResult, attackerRollHtml)}</div>
       <div class="result defender">${renderDetails(defenderResult, defenderRollHtml)}</div>
-      <footer>${foundry.utils.escapeHTML(winnerLine)}</footer>
+      <footer>${foundry.utils.escapeHTML((() => {
+        if (!winner) return "";
+        const name = winner.actor?.name ?? game.i18n.localize("WNGCE.ContestedRoll.UnknownActor");
+        if (tieBreaker) {
+          return game.i18n.format("WNGCE.ContestedRoll.TieInitiatorLine", { name });
+        }
+        return game.i18n.format("WNGCE.ContestedRoll.WinnerLine", { name, margin });
+      })())}</footer>
     </section>
   `;
 }
@@ -360,10 +385,9 @@ async function contestedRoll(initial = {}) {
     defenderTrait: initial.defenderTrait ?? lastDialogState?.defenderTrait ?? defaultTrait,
     attackerBonus: initial.attackerBonus ?? lastDialogState?.attackerBonus ?? 0,
     defenderBonus: initial.defenderBonus ?? lastDialogState?.defenderBonus ?? 0,
-    attackerWrath: initial.attackerWrath ?? lastDialogState?.attackerWrath ?? 1,
-    defenderWrath: initial.defenderWrath ?? lastDialogState?.defenderWrath ?? 1,
-    attackerDn: initial.attackerDn ?? lastDialogState?.attackerDn ?? 3,
-    defenderDn: initial.defenderDn ?? lastDialogState?.defenderDn ?? 3
+    attackerWrath: initial.attackerWrath ?? lastDialogState?.attackerWrath ?? 0,
+    defenderWrath: initial.defenderWrath ?? lastDialogState?.defenderWrath ?? 0,
+    initiator: initial.initiator ?? lastDialogState?.initiator ?? "attacker"
   };
 
   const content = buildDialogContent(state, actorOptions, traitOptions);
@@ -387,10 +411,9 @@ async function contestedRoll(initial = {}) {
               const defenderTraitValue = data.get("defenderTrait");
               const attackerBonus = sanitizeInteger(data.get("attackerBonus"));
               const defenderBonus = sanitizeInteger(data.get("defenderBonus"));
-              const attackerWrath = clamp(sanitizeInteger(data.get("attackerWrath"), 1), 0, 100);
-              const defenderWrath = clamp(sanitizeInteger(data.get("defenderWrath"), 1), 0, 100);
-              const attackerDn = Math.max(0, sanitizeInteger(data.get("attackerDn"), 3));
-              const defenderDn = Math.max(0, sanitizeInteger(data.get("defenderDn"), 3));
+              const attackerWrath = clamp(sanitizeInteger(data.get("attackerWrath"), 0), 0, 100);
+              const defenderWrath = clamp(sanitizeInteger(data.get("defenderWrath"), 0), 0, 100);
+              const initiator = data.get("initiator") === "defender" ? "defender" : "attacker";
 
               const attackerTrait = parseTraitSelection(attackerTraitValue);
               const defenderTrait = parseTraitSelection(defenderTraitValue);
@@ -410,8 +433,7 @@ async function contestedRoll(initial = {}) {
                 defenderBonus,
                 attackerWrath,
                 defenderWrath,
-                attackerDn,
-                defenderDn
+                initiator
               };
 
               const attackerActor = resolveActor(attackerId);
@@ -423,7 +445,6 @@ async function contestedRoll(initial = {}) {
                   traitType: attackerTrait.type,
                   traitKey: attackerTrait.key,
                   bonusDice: attackerBonus,
-                  dn: attackerDn,
                   wrathDice: attackerWrath
                 }),
                 executeTraitRoll({
@@ -431,12 +452,11 @@ async function contestedRoll(initial = {}) {
                   traitType: defenderTrait.type,
                   traitKey: defenderTrait.key,
                   bonusDice: defenderBonus,
-                  dn: defenderDn,
                   wrathDice: defenderWrath
                 })
               ]);
 
-              const summaryHtml = await buildChatSummary(attackerResult, defenderResult);
+              const summaryHtml = await buildChatSummary(attackerResult, defenderResult, { initiator });
               const speakerActor = attackerActor ?? defenderActor ?? null;
               const speaker = ChatMessage.getSpeaker({ actor: speakerActor }) ?? undefined;
               await ChatMessage.create({
@@ -446,11 +466,12 @@ async function contestedRoll(initial = {}) {
                   [MODULE_ID]: {
                     contested: true,
                     attacker: attackerActor?.uuid ?? attackerActor?.id ?? null,
-                    defender: defenderActor?.uuid ?? defenderActor?.id ?? null
+                    defender: defenderActor?.uuid ?? defenderActor?.id ?? null,
+                    initiator
                   }
                 }
               });
-              resolve({ attackerResult, defenderResult });
+              resolve({ attackerResult, defenderResult, initiator });
             } catch (err) {
               logError("Failed to complete contested roll", err);
               ui.notifications?.error?.(game.i18n.localize("WNGCE.ContestedRoll.RollFailure"));
