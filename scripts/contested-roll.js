@@ -17,44 +17,194 @@ function ensureApi() {
   return game[API_NAMESPACE];
 }
 
-function collectActorOptions() {
-  const seen = new Map();
-  const pushActor = (actor, hint) => {
-    if (!actor?.id || seen.has(actor.id)) return;
-    const name = actor.name ?? game.i18n.localize("WNGCE.Common.UnknownActor") ?? "Unknown";
-    seen.set(actor.id, {
-      id: actor.id,
-      name,
-      hint: hint ?? "",
-      actor
-    });
+function encodeActorSelection(actor) {
+  const actorId = actor?.id ?? null;
+  if (!actorId) return null;
+  return `actor:${actorId}`;
+}
+
+function encodeTokenSelection(token) {
+  if (!token) return null;
+  const document = token?.document ?? token;
+  const uuid = document?.uuid ?? null;
+  if (uuid) return `token:${uuid}`;
+  return encodeActorSelection((token?.actor ?? document?.actor) ?? null);
+}
+
+function normalizeSelectionValue(value) {
+  if (!value || typeof value !== "string") return null;
+  if (value.startsWith("token:") || value.startsWith("actor:")) return value;
+  return `actor:${value}`;
+}
+
+function buildOptionFromActor(actor, { hint } = {}) {
+  if (!actor?.id) return null;
+  const name = actor.name ?? game.i18n.localize("WNGCE.Common.UnknownActor") ?? "Unknown";
+  return {
+    value: encodeActorSelection(actor),
+    name,
+    hint: hint ?? "",
+    actor
+  };
+}
+
+function buildOptionFromToken(token) {
+  const document = token?.document ?? token;
+  const actor = (token?.actor ?? document?.actor) ?? null;
+  if (!actor) return null;
+  const tokenName = (token?.name ?? document?.name) ?? actor.name ?? game.i18n.localize("WNGCE.Common.UnknownActor");
+  const actorName = actor.name ?? tokenName;
+  const hint = tokenName !== actorName ? actorName : "";
+  return {
+    value: encodeTokenSelection(token),
+    name: tokenName,
+    hint,
+    actor,
+    token
+  };
+}
+
+function buildOptionFromSelection(value) {
+  const normalized = normalizeSelectionValue(value);
+  if (!normalized) return null;
+
+  if (normalized.startsWith("token:")) {
+    const uuid = normalized.slice(6);
+    try {
+      const tokenDocument = resolveTokenDocumentSync(uuid);
+      const token = tokenDocument?.object ?? null;
+      const actor = tokenDocument?.actor ?? token?.actor ?? null;
+      if (!actor) return null;
+      const option = buildOptionFromToken(token ?? tokenDocument);
+      if (option) {
+        option.value = normalized;
+        return option;
+      }
+      const name = tokenDocument?.name ?? actor.name ?? game.i18n.localize("WNGCE.Common.UnknownActor");
+      return {
+        value: normalized,
+        name,
+        hint: "",
+        actor
+      };
+    } catch (err) {
+      logError(`Failed to resolve token selection ${uuid}`, err);
+      return null;
+    }
+  }
+
+  const actorId = normalized.slice(6);
+  const actor = game.actors?.get(actorId) ?? null;
+  if (!actor) return null;
+  const option = buildOptionFromActor(actor);
+  if (option) {
+    option.value = normalized;
+  }
+  return option;
+}
+
+function isTokenVisibleToUser(token, user) {
+  if (!token) return false;
+  if (user?.isGM) return true;
+  if (token.isVisible === false) return false;
+  if (token.visible === false) return false;
+  if (token.document?.hidden) return false;
+  return true;
+}
+
+function findPrimaryTokenForUser(user) {
+  const controlled = Array.from(canvas?.tokens?.controlled ?? []);
+  if (controlled.length) return controlled[0];
+
+  const characterTokens = user?.character?.getActiveTokens?.(true, true) ?? [];
+  if (characterTokens.length) return characterTokens[0];
+
+  const owned = (canvas?.tokens?.placeables ?? []).filter((token) => token?.isOwner);
+  if (owned.length) return owned[0];
+
+  return null;
+}
+
+function collectSceneTokenOptions({ user, includeHidden }) {
+  const tokens = canvas?.tokens?.placeables ?? [];
+  const options = [];
+  const seen = new Set();
+
+  for (const token of tokens) {
+    if (!token?.actor) continue;
+    if (!includeHidden && !isTokenVisibleToUser(token, user)) continue;
+    const option = buildOptionFromToken(token);
+    if (!option) continue;
+    if (seen.has(option.value)) continue;
+    seen.add(option.value);
+    options.push(option);
+  }
+
+  options.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang ?? "en"));
+  return options;
+}
+
+function collectAttackerOptions({ user, initialSelection, lockToInitial = false }) {
+  const isGM = user?.isGM;
+  const options = [];
+  const seen = new Set();
+  const addOption = (option) => {
+    if (!option) return;
+    if (seen.has(option.value)) return;
+    seen.add(option.value);
+    options.push(option);
   };
 
-  const targeted = Array.from(game?.user?.targets ?? []);
-  for (const token of targeted) {
-    if (!token?.actor) continue;
-    pushActor(token.actor, game.i18n.localize("WNGCE.ContestedRoll.TargetHint"));
+  if (initialSelection) {
+    addOption(buildOptionFromSelection(initialSelection));
+    if (!isGM || lockToInitial) {
+      options.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang ?? "en"));
+      return options;
+    }
+  }
+
+  if (!isGM) {
+    const primaryToken = findPrimaryTokenForUser(user);
+    if (primaryToken) {
+      addOption(buildOptionFromToken(primaryToken));
+    } else if (!options.length && user?.character) {
+      addOption(buildOptionFromActor(user.character));
+    }
+    options.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang ?? "en"));
+    return options;
   }
 
   const controlled = Array.from(canvas?.tokens?.controlled ?? []);
   for (const token of controlled) {
-    if (!token?.actor) continue;
-    pushActor(token.actor, game.i18n.localize("WNGCE.ContestedRoll.ControlledHint"));
+    addOption(buildOptionFromToken(token));
   }
 
-  const combatants = Array.from(game?.combat?.combatants ?? []);
-  for (const combatant of combatants) {
-    if (!combatant?.actor) continue;
-    pushActor(combatant.actor, game.i18n.localize("WNGCE.ContestedRoll.CombatantHint"));
+  if (!options.length) {
+    const targeted = Array.from(user?.targets ?? []);
+    for (const token of targeted) {
+      addOption(buildOptionFromToken(token));
+    }
   }
 
-  for (const actor of game.actors ?? []) {
-    pushActor(actor);
+  if (!options.length) {
+    const sceneTokens = collectSceneTokenOptions({ user, includeHidden: true });
+    for (const option of sceneTokens) {
+      addOption(option);
+    }
   }
 
-  const options = Array.from(seen.values());
+  if (!options.length) {
+    for (const actor of game.actors ?? []) {
+      addOption(buildOptionFromActor(actor));
+    }
+  }
+
   options.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang ?? "en"));
   return options;
+}
+
+function collectDefenderOptions({ user }) {
+  return collectSceneTokenOptions({ user, includeHidden: user?.isGM ?? false });
 }
 
 function buildTraitOptions() {
@@ -200,10 +350,10 @@ function formatTraitLabel(traitType, traitKey) {
   return traitKey;
 }
 
-function buildDialogContent(state, actorOptions, traitOptions) {
-  const actorOptionsHtml = (selectedId) => actorOptions.map((option) => {
+function buildDialogContent(state, { attackerOptions, defenderOptions }, traitOptions) {
+  const renderOptions = (options, selectedValue) => options.map((option) => {
     const hint = option.hint ? ` data-tooltip="${foundry.utils.escapeHTML(option.hint)}"` : "";
-    return `<option value="${option.id}"${option.id === selectedId ? " selected" : ""}${hint}>${foundry.utils.escapeHTML(option.name)}</option>`;
+    return `<option value="${option.value}"${option.value === selectedValue ? " selected" : ""}${hint}>${foundry.utils.escapeHTML(option.name)}</option>`;
   }).join("");
 
   const traitOptionsHtml = (selectedValue) => traitOptions.map((option) => {
@@ -214,7 +364,7 @@ function buildDialogContent(state, actorOptions, traitOptions) {
     <form class="wngce-contested-form">
       <div class="form-group">
         <label>${game.i18n.localize("WNGCE.ContestedRoll.Attacker")}</label>
-        <select name="attacker" required>${actorOptionsHtml(state.attacker)}</select>
+        <select name="attacker" required>${renderOptions(attackerOptions, state.attacker)}</select>
       </div>
       <div class="form-group">
         <label>${game.i18n.localize("WNGCE.ContestedRoll.AttackerTrait")}</label>
@@ -231,7 +381,7 @@ function buildDialogContent(state, actorOptions, traitOptions) {
       <hr />
       <div class="form-group">
         <label>${game.i18n.localize("WNGCE.ContestedRoll.Defender")}</label>
-        <select name="defender" required>${actorOptionsHtml(state.defender)}</select>
+        <select name="defender" required>${renderOptions(defenderOptions, state.defender)}</select>
       </div>
       <div class="form-group">
         <label>${game.i18n.localize("WNGCE.ContestedRoll.DefenderTrait")}</label>
@@ -266,9 +416,45 @@ function parseTraitSelection(value) {
   return { type, key };
 }
 
-function resolveActor(actorId) {
-  if (!actorId) return null;
-  return game.actors?.get(actorId) ?? null;
+function resolveSelection(selection) {
+  const normalized = normalizeSelectionValue(selection);
+  if (!normalized) {
+    return { actor: null, tokenDocument: null, token: null };
+  }
+
+  if (normalized.startsWith("token:")) {
+    const uuid = normalized.slice(6);
+    try {
+      const tokenDocument = resolveTokenDocumentSync(uuid);
+      const token = tokenDocument?.object ?? null;
+      const actor = tokenDocument?.actor ?? token?.actor ?? null;
+      return { actor, tokenDocument, token };
+    } catch (err) {
+      logError(`Failed to resolve token selection ${uuid}`, err);
+      return { actor: null, tokenDocument: null, token: null };
+    }
+  }
+
+  const actorId = normalized.slice(6);
+  const actor = game.actors?.get(actorId) ?? null;
+  return { actor, tokenDocument: null, token: null };
+}
+
+function resolveTokenDocumentSync(uuid) {
+  if (!uuid) return null;
+  if (typeof fromUuidSync === "function") {
+    return fromUuidSync(uuid);
+  }
+  const parts = uuid.split?.(".") ?? [];
+  if (parts.length >= 4 && parts[0] === "Scene") {
+    const sceneId = parts[1];
+    const tokenId = parts[3];
+    const scene = game.scenes?.get(sceneId) ?? null;
+    if (scene) {
+      return scene.tokens?.get(tokenId) ?? null;
+    }
+  }
+  return null;
 }
 
 async function buildChatSummary(attackerResult, defenderResult, { initiator } = {}) {
@@ -359,8 +545,16 @@ async function contestedRoll(initial = {}) {
     return null;
   }
 
-  const actorOptions = collectActorOptions();
-  if (!actorOptions.length) {
+  const user = game?.user ?? null;
+  const hasExplicitAttacker = Object.prototype.hasOwnProperty.call(initial, "attacker");
+  const normalizedInitialAttacker = normalizeSelectionValue(initial.attacker ?? lastDialogState?.attacker ?? null);
+  const lockToInitialAttacker = Boolean(user?.isGM && hasExplicitAttacker && normalizedInitialAttacker);
+  const attackerOptions = collectAttackerOptions({
+    user,
+    initialSelection: normalizedInitialAttacker,
+    lockToInitial: lockToInitialAttacker
+  });
+  if (!attackerOptions.length) {
     ui.notifications?.warn?.(game.i18n.localize("WNGCE.ContestedRoll.NoActors"));
     return null;
   }
@@ -371,10 +565,27 @@ async function contestedRoll(initial = {}) {
     return null;
   }
 
-  const controlled = canvas?.tokens?.controlled ?? [];
-  const targets = Array.from(game?.user?.targets ?? []);
-  const attackerDefault = initial.attacker ?? lastDialogState?.attacker ?? controlled[0]?.actor?.id ?? actorOptions[0]?.id ?? null;
-  const defenderDefault = initial.defender ?? lastDialogState?.defender ?? targets[0]?.actor?.id ?? actorOptions[1]?.id ?? attackerDefault;
+  const defenderOptions = collectDefenderOptions({ user });
+  if (!defenderOptions.length) {
+    ui.notifications?.warn?.(game.i18n.localize("WNGCE.ContestedRoll.NoOpposition"));
+    return null;
+  }
+
+  const targets = Array.from(user?.targets ?? []);
+  const targetedSelection = encodeTokenSelection(targets[0] ?? null);
+
+  let attackerDefault = normalizedInitialAttacker;
+  if (!attackerDefault || !attackerOptions.some((option) => option.value === attackerDefault)) {
+    attackerDefault = attackerOptions[0]?.value ?? null;
+  }
+
+  let defenderDefault = normalizeSelectionValue(initial.defender ?? lastDialogState?.defender ?? targetedSelection ?? null);
+  if (targetedSelection && defenderOptions.some((option) => option.value === targetedSelection)) {
+    defenderDefault = targetedSelection;
+  }
+  if (!defenderDefault || !defenderOptions.some((option) => option.value === defenderDefault)) {
+    defenderDefault = defenderOptions[0]?.value ?? attackerDefault;
+  }
 
   const defaultTrait = traitOptions[0]?.value ?? null;
 
@@ -390,7 +601,7 @@ async function contestedRoll(initial = {}) {
     initiator: initial.initiator ?? lastDialogState?.initiator ?? "attacker"
   };
 
-  const content = buildDialogContent(state, actorOptions, traitOptions);
+  const content = buildDialogContent(state, { attackerOptions, defenderOptions }, traitOptions);
 
   return new Promise((resolve) => {
     new Dialog({
@@ -436,8 +647,10 @@ async function contestedRoll(initial = {}) {
                 initiator
               };
 
-              const attackerActor = resolveActor(attackerId);
-              const defenderActor = resolveActor(defenderId);
+              const attackerSelection = resolveSelection(attackerId);
+              const defenderSelection = resolveSelection(defenderId);
+              const attackerActor = attackerSelection.actor;
+              const defenderActor = defenderSelection.actor;
 
               const [attackerResult, defenderResult] = await Promise.all([
                 executeTraitRoll({
@@ -458,15 +671,23 @@ async function contestedRoll(initial = {}) {
 
               const summaryHtml = await buildChatSummary(attackerResult, defenderResult, { initiator });
               const speakerActor = attackerActor ?? defenderActor ?? null;
-              const speaker = ChatMessage.getSpeaker({ actor: speakerActor }) ?? undefined;
+              const speakerToken = attackerSelection.tokenDocument ?? defenderSelection.tokenDocument ?? undefined;
+              const speakerScene = speakerToken?.parent ?? undefined;
+              const speaker = ChatMessage.getSpeaker({
+                actor: speakerActor ?? undefined,
+                token: speakerToken,
+                scene: speakerScene
+              }) ?? undefined;
               await ChatMessage.create({
                 content: summaryHtml,
                 speaker,
                 flags: {
                   [MODULE_ID]: {
                     contested: true,
-                    attacker: attackerActor?.uuid ?? attackerActor?.id ?? null,
-                    defender: defenderActor?.uuid ?? defenderActor?.id ?? null,
+                    attacker:
+                      attackerSelection.tokenDocument?.uuid ?? attackerActor?.uuid ?? attackerActor?.id ?? null,
+                    defender:
+                      defenderSelection.tokenDocument?.uuid ?? defenderActor?.uuid ?? defenderActor?.id ?? null,
                     initiator
                   }
                 }

@@ -37,6 +37,7 @@
   "WNGCE.ContestedRoll.UnknownTrait": "Unknown Trait",
   "WNGCE.ContestedRoll.WrongSystem": "Contested tests are only available in Wrath & Glory worlds.",
   "WNGCE.ContestedRoll.NoActors": "No eligible actors were found to test against.",
+  "WNGCE.ContestedRoll.NoOpposition": "No eligible opposing tokens were found on the scene.",
   "WNGCE.ContestedRoll.NoTraits": "No skills or attributes are available to roll.",
   "WNGCE.ContestedRoll.InvalidSelection": "Choose two actors and valid traits before rolling.",
   "WNGCE.ContestedRoll.RollFailure": "The contested roll could not be completed. Check the console for details.",
