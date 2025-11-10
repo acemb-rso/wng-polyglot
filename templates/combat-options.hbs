@@ -16,14 +16,6 @@
         <input data-co type="checkbox" name="charging" {{#if fields.charging}}checked{{/if}} />
         <span>{{t labels.charge}}</span>
       </div>
-      <div class="combat-options__option">
-        <input data-co type="checkbox" name="grapple" {{#if fields.grapple}}checked{{/if}} />
-        <span>{{t labels.grapple}}</span>
-      </div>
-      <div class="combat-options__option">
-        <input data-co type="checkbox" name="fallBack" {{#if fields.fallBack}}checked{{/if}} />
-        <span>{{t labels.fallBack}}</span>
-      </div>
     </div>
     {{/if}}
 
@@ -41,7 +33,13 @@
       {{#if canPinning}}
       <div class="combat-options__option">
         <input data-co type="checkbox" name="pinning" {{#if fields.pinning}}checked{{/if}} />
-        <span>{{t labels.pinning}}</span>
+        <span>
+          {{t labels.pinning}}
+          {{#if pinningResolve}}
+            <br />
+            <small>Resolve DN {{pinningResolve}}</small>
+          {{/if}}
+        </span>
       </div>
       {{/if}}
     </div>
@@ -87,6 +85,12 @@
         <input data-co type="checkbox" name="disarm" {{#if fields.disarm}}checked{{/if}} />
         <span>{{t labels.disarm}}</span>
       </div>
+      {{#if fields.disarm}}
+      <div class="combat-options__note">
+        <span>{{t labels.disarmNoteHeading}}</span>
+        <div>{{t labels.disarmNote}}</div>
+      </div>
+      {{/if}}
 
       <div class="combat-options__option combat-options__option--called-shot">
         <div class="combat-options__option">

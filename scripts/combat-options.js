@@ -30,14 +30,14 @@ const logError = (...args) => log("error", ...args);
 const COMBAT_OPTION_LABELS = {
   allOutAttack: "All-Out Attack (+2 Dice / –2 Defence)",
   charge: "Charge (+1 Die, 2× Speed)",
-  grapple: "Grapple (Opposed Strength Test)",
-  fallBack: "Fall Back (Withdraw safely)",
   brace: "Brace (Negate Heavy trait)",
   pinning: "Pinning Attack (No damage, target tests Resolve)",
   halfCover: "Half Cover (+1 Defence)",
   fullCover: "Full Cover (+2 Defence)",
   pistolsInMelee: "Pistols In Melee (+2 DN to Ballistic Skill)",
-  calledShotDisarm: "Disarm (No damage)"
+  calledShotDisarm: "Disarm (No damage; Strength DN = half total damage)",
+  disarmNoteHeading: "Disarm Reminder",
+  disarmNote: "Roll damage as normal to determine the Strength DN (half the attack's total damage)."
 };
 
 const ENGAGED_TOOLTIP_LABELS = {
@@ -778,6 +778,20 @@ function getTargetSize(dialog) {
   return normalizeSizeKey(size);
 }
 
+function getTargetResolve(dialog) {
+  const target = dialog?.data?.targets?.[0];
+  const actor = target?.actor ?? target?.document?.actor;
+  if (!actor) return null;
+
+  const resolveTotal = Number(foundry.utils.getProperty(actor.system, "attributes.resolve.total"));
+  if (Number.isFinite(resolveTotal) && resolveTotal > 0) return resolveTotal;
+
+  const resolveValue = Number(foundry.utils.getProperty(actor.system, "attributes.resolve.value"));
+  if (Number.isFinite(resolveValue) && resolveValue > 0) return resolveValue;
+
+  return null;
+}
+
 function getTargetIdentifier(dialog) {
   const target = dialog?.data?.targets?.[0];
   if (!target) return null;
@@ -1385,8 +1399,8 @@ function ensureWeaponDialogPatched(app) {
     }
 
     context.combatOptionsOpen = Boolean(
-      fields.allOutAttack || fields.charging || fields.aim || fields.grapple ||
-      fields.fallBack || fields.brace || (canPinning && fields.pinning) ||
+      fields.allOutAttack || fields.charging || fields.aim ||
+      fields.brace || (canPinning && fields.pinning) ||
       fields.cover || fields.pistolsInMelee || fields.sizeModifier || fields.visionPenalty ||
       fields.disarm || fields.calledShot?.enabled || fields.calledShot?.size
     );
@@ -1402,8 +1416,6 @@ function ensureWeaponDialogPatched(app) {
     const defaults = originalDefaultFields.call(this) ?? {};
     return foundry.utils.mergeObject(defaults, {
       allOutAttack: false,
-      grapple: false,
-      fallBack: false,
       brace: false,
       pinning: false,
       cover: "",
@@ -1485,6 +1497,19 @@ function ensureWeaponDialogPatched(app) {
 
     const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
     const canPinning = Boolean(weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
+    let pinningResolve = null;
+    if (typeof this._combatOptionsPinningResolve === "number" && Number.isFinite(this._combatOptionsPinningResolve)) {
+      pinningResolve = Math.max(0, Math.round(this._combatOptionsPinningResolve));
+      this._combatOptionsPinningResolve = pinningResolve;
+    } else {
+      const resolved = getTargetResolve(this);
+      if (Number.isFinite(resolved)) {
+        pinningResolve = Math.max(0, Math.round(resolved));
+        this._combatOptionsPinningResolve = pinningResolve;
+      } else {
+        this._combatOptionsPinningResolve = null;
+      }
+    }
     if (!canPinning && fields.pinning) {
       fields.pinning = false;
     }
@@ -1617,8 +1642,6 @@ function ensureWeaponDialogPatched(app) {
         fields.pool += 2;
         addTooltip("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
       }
-      if (fields.grapple)  addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.grapple);
-      if (fields.fallBack) addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.fallBack);
     }
 
     // Ranged-specific options including bracing, suppressive fire, and pistol penalties
@@ -1639,10 +1662,19 @@ function ensureWeaponDialogPatched(app) {
 
       if (canPinning && fields.pinning) {
         if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
+        const previousDifficulty = Number(fields.difficulty ?? 0);
+        if (Number.isFinite(pinningResolve)) {
+          const resolvedDifficulty = Math.max(0, pinningResolve);
+          fields.difficulty = resolvedDifficulty;
+          const difficultyDelta = resolvedDifficulty - previousDifficulty;
+          const resolveLabel = `${COMBAT_OPTION_LABELS.pinning} (Resolve DN ${resolvedDifficulty})`;
+          addTooltip("difficulty", difficultyDelta, resolveLabel);
+        } else {
+          addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
+        }
         fields.damage = 0;
         fields.ed.value = 0;
         fields.ed.dice = "";
-        addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
         damageSuppressed = true;
       }
 
@@ -1793,18 +1825,19 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     const salvoValue = Number(app.weapon?.system?.salvo ?? app.weapon?.salvo ?? 0);
     const canPinning = Boolean(app.weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
 
+    const targetResolve = getTargetResolve(app);
+    const normalizedResolve = Number.isFinite(targetResolve) ? Math.max(0, Math.round(targetResolve)) : null;
     const ctx = {
       open: app._combatOptionsOpen ?? false,
       isMelee: !!app.weapon?.isMelee,
       isRanged: !!app.weapon?.isRanged,
       hasHeavy: !!app.weapon?.system?.traits?.has?.("heavy"),
       canPinning,
+      pinningResolve: normalizedResolve,
       fields: foundry.utils.duplicate(app.fields ?? {}),
       labels: {
         allOutAttack: COMBAT_OPTION_LABELS.allOutAttack,
         charge: COMBAT_OPTION_LABELS.charge,
-        grapple: COMBAT_OPTION_LABELS.grapple,
-        fallBack: COMBAT_OPTION_LABELS.fallBack,
         brace: COMBAT_OPTION_LABELS.brace,
         pinning: COMBAT_OPTION_LABELS.pinning,
         cover: "Cover",
@@ -1812,7 +1845,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         size: "Target Size",
         calledShot: "Called Shot",
         calledShotSize: "Target Size",
-        disarm: COMBAT_OPTION_LABELS.calledShotDisarm
+        disarm: COMBAT_OPTION_LABELS.calledShotDisarm,
+        disarmNoteHeading: COMBAT_OPTION_LABELS.disarmNoteHeading,
+        disarmNote: COMBAT_OPTION_LABELS.disarmNote
       },
       coverOptions: [
         { value: "",     label: "No Cover" },
@@ -1894,6 +1929,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     if (app._combatOptionsCoverTargetId !== currentTargetId) {
       app._combatOptionsCoverOverride = false;
       app._combatOptionsCoverTargetId = currentTargetId;
+    }
+
+    if (app._combatOptionsPinningResolve !== normalizedResolve) {
+      app._combatOptionsPinningResolve = normalizedResolve;
+      shouldRecompute = true;
     }
 
     const defaultCover = getTargetCover(app);
