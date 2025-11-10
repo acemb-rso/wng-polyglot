@@ -742,12 +742,9 @@ function injectActorSheetButton(app, html) {
   try {
     if (game.system.id !== "wrath-and-glory") return;
     const element = html instanceof jQuery ? html[0] : html;
-    const header =
-      element?.querySelector?.(
-        ".sheet-header .header-actions, .sheet-header .header-buttons, .sheet-header .header-controls, .sheet-header"
-      ) ?? null;
-    if (!header) return;
-    if (header.querySelector('[data-wngce-contested]')) return;
+    if (!element) return;
+
+    if (element.querySelector('[data-wngce-contested]')) return;
 
     const button = document.createElement("button");
     button.type = "button";
@@ -759,6 +756,30 @@ function injectActorSheetButton(app, html) {
       contestedRoll({ attacker: app.actor?.id });
     });
 
+    const keywordsSection =
+      element.querySelector?.('section[data-tab="stats"] .keywords') ??
+      element.querySelector?.('section[data-tab="main"] .keywords') ??
+      element.querySelector?.('.sheet-body .keywords') ??
+      element.querySelector?.('.keywords') ??
+      null;
+    if (keywordsSection instanceof HTMLElement) {
+      button.classList.add("wngce-contested-button--keywords");
+      const createKeywordButton = keywordsSection.querySelector(
+        'button[data-action="createItem"][data-type="keyword"]'
+      );
+      if (createKeywordButton?.nextElementSibling) {
+        keywordsSection.insertBefore(button, createKeywordButton.nextElementSibling);
+      } else {
+        keywordsSection.appendChild(button);
+      }
+      return;
+    }
+
+    const header =
+      element?.querySelector?.(
+        ".sheet-header .header-actions, .sheet-header .header-buttons, .sheet-header .header-controls, .sheet-header"
+      ) ?? null;
+    if (!header) return;
     header.appendChild(button);
   } catch (err) {
     logError("Failed to inject contested roll button", err);
