@@ -174,8 +174,14 @@
   margin-left: 0.5rem;
 }
 
+.wrath-and-glory .wngce-contested-button-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.25rem;
+}
+
 .wrath-and-glory .wngce-contested-button--keywords {
-  margin-left: 0.5rem;
+  margin-left: 0;
 }
 
 .wrath-and-glory .wngce-contested-button i {
