@@ -763,16 +763,15 @@ function injectActorSheetButton(app, html) {
       element.querySelector?.('.keywords') ??
       null;
     if (keywordsSection instanceof HTMLElement) {
-      button.classList.add("wngce-contested-button--keywords");
-      const createKeywordButton = keywordsSection.querySelector(
-        'button[data-action="createItem"][data-type="keyword"]'
-      );
-      if (createKeywordButton?.nextElementSibling) {
-        keywordsSection.insertBefore(button, createKeywordButton.nextElementSibling);
-      } else {
-        keywordsSection.appendChild(button);
+      const parent = keywordsSection.parentElement;
+      if (parent instanceof HTMLElement) {
+        const container = document.createElement("div");
+        container.classList.add("wngce-contested-button-container");
+        button.classList.add("wngce-contested-button--keywords");
+        container.appendChild(button);
+        parent.insertBefore(container, keywordsSection);
+        return;
       }
-      return;
     }
 
     const header =
