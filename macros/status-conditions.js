@@ -70,7 +70,9 @@ function detectDnPath(actor) {
 
 // ===== 2) Helpers =====
 function getSystemConditionDef(id, label) {
-  const arr = CONFIG.statusEffects ?? [];
+  const statusDefs = CONFIG.statusEffects ?? [];
+  const systemDefs = Object.values(game.wng?.config?.systemEffects ?? {});
+  const arr = statusDefs.concat(systemDefs);
   const norm = s => String(s ?? "").toLowerCase();
 
   let def = arr.find(e => norm(e.id) === norm(id));
