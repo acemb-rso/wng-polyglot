@@ -2143,11 +2143,25 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
+      // Fields that may trigger weapon traits - invalidate baseline
+      const traitTriggerFields = [
+        "aim",
+        "charging",
+        "calledShot.enabled",
+        "calledShot.size"
+      ];
+
+      if (traitTriggerFields.includes(name)) {
+        app._combatOptionsInitialFields = undefined;
+        app._combatOptionsDamageBaseline = undefined;
+        app._combatOptionsManualOverrides = undefined;
+      }
+
       // Force a complete recalculation so the system re-applies weapon stats before we
       // layer our modifiers on top of them.
       if (typeof app.computeFields === 'function') {
         app.computeFields();
-    }
+      }
 
       updateVisibleFields(app, $html);
     });
