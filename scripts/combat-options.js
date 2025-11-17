@@ -1488,7 +1488,10 @@ function ensureWeaponDialogPatched(app) {
 
     const baseFields = this._combatOptionsBaseFields
       ? foundry.utils.deepClone(this._combatOptionsBaseFields)
-      : foundry.utils.deepClone((typeof originalDefaultFields === "function" ? originalDefaultFields.call(this) : {}) ?? {});
+      // Capture the current fields (populated by computeInitialFields) so the first
+      // recalculation starts from the actor- and target-specific defaults instead of
+      // the static dialog defaults of pool 1 / DN 3.
+      : foundry.utils.deepClone(currentFields ?? {});
 
     if (!this._combatOptionsBaseFields) {
       this._combatOptionsBaseFields = foundry.utils.deepClone(baseFields);
