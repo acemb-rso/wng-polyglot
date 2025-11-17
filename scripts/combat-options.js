@@ -1532,11 +1532,12 @@ function ensureWeaponDialogPatched(app) {
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
 
-    // Preserve the system's computed baseline (including dialog modifiers) so future
-    // recalculations always start from a state that respects effect scripts. Without
-    // this, toggling combat extender options could inadvertently discard dialog
-    // modifier changes such as weapon traits.
+    // Preserve the system's computed baseline (including weapon trait scripts and dialog
+    // modifiers) so future recalculations always start from the fully resolved state
+    // provided by the system rather than the pre-script snapshot used for combat
+    // extender adjustments.
     this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields);
+
     this._combatOptionsBaseFields = foundry.utils.deepClone(baseSnapshot);
 
     // Determine the size modifier that should apply automatically based on the selected
