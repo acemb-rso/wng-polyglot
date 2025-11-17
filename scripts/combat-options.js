@@ -1486,12 +1486,13 @@ function ensureWeaponDialogPatched(app) {
       calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
     };
 
+    const initialDefaults = originalDefaultFields.call(this) ?? {};
     const baseFields = this._combatOptionsBaseFields
       ? foundry.utils.deepClone(this._combatOptionsBaseFields)
-      // Capture the current fields (populated by computeInitialFields) so the first
-      // recalculation starts from the actor- and target-specific defaults instead of
-      // the static dialog defaults of pool 1 / DN 3.
-      : foundry.utils.deepClone(currentFields ?? {});
+      // Start from the dialog defaults to avoid reusing pre-computed weapon values that
+      // might already include bonuses. This prevents weapon stats (including damage) from
+      // being added multiple times when the dialog performs its first recalculation.
+      : foundry.utils.deepClone(initialDefaults);
 
     if (!this._combatOptionsBaseFields) {
       this._combatOptionsBaseFields = foundry.utils.deepClone(baseFields);
@@ -1547,13 +1548,16 @@ function ensureWeaponDialogPatched(app) {
     const defaultSize = getTargetSize(this);
     this._combatOptionsDefaultSizeModifier = defaultSize;
     const defaultSizeFieldValue = defaultSize === "average" ? "" : defaultSize;
-    
+
     if (this._combatOptionsSizeOverride && (fields.sizeModifier ?? "") === defaultSizeFieldValue) {
       this._combatOptionsSizeOverride = false;
     }
     if (!this._combatOptionsSizeOverride) {
       fields.sizeModifier = defaultSizeFieldValue;
     }
+
+    const normalizedSizeModifier = normalizeSizeKey(fields.sizeModifier || defaultSizeFieldValue || defaultSize);
+    fields.sizeModifier = normalizedSizeModifier === "average" ? "" : normalizedSizeModifier;
 
     // 6. Check pinning eligibility and resolve
     const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
