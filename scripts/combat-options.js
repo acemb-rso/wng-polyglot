@@ -1415,6 +1415,9 @@ function ensureWeaponDialogPatched(app) {
   prototype._defaultFields = function () {
     const defaults = originalDefaultFields.call(this) ?? {};
     return foundry.utils.mergeObject(defaults, {
+      ed: { value: 0, dice: 0 },
+      ap: { value: 0, dice: 0 },
+      damage: 0,
       allOutAttack: false,
       brace: false,
       pinning: false,
@@ -1437,6 +1440,26 @@ function ensureWeaponDialogPatched(app) {
     const currentFields = this.fields ?? (this.fields = {});
     const weapon = this.weapon;
     if (!weapon) return;
+
+    // Ensure core field objects exist with the structure expected by the system before
+    // any further processing occurs.
+    if (!currentFields.ed) {
+      currentFields.ed = { value: 0, dice: 0 };
+    } else {
+      if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
+      if (currentFields.ed.dice === undefined) currentFields.ed.dice = 0;
+    }
+
+    if (!currentFields.ap) {
+      currentFields.ap = { value: 0, dice: 0 };
+    } else {
+      if (currentFields.ap.value === undefined) currentFields.ap.value = 0;
+      if (currentFields.ap.dice === undefined) currentFields.ap.dice = 0;
+    }
+
+    if (currentFields.damage === undefined) {
+      currentFields.damage = 0;
+    }
 
     // Preserve manual overrides so they can be reapplied after recomputing the system
     // defaults. This prevents user-entered values from being lost when the dialog
@@ -1477,7 +1500,6 @@ function ensureWeaponDialogPatched(app) {
     }
 
     const fields = this.fields ?? (this.fields = {});
-    if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
     // 2. Temporarily disable target size tooltip for replacement
     const tooltips = this.tooltips;
@@ -1500,18 +1522,14 @@ function ensureWeaponDialogPatched(app) {
 
     // 4. CAPTURE THE SYSTEM-COMPUTED BASELINE
     // This is the "truth" - includes weapon base stats + all trait bonuses
-    const systemBaseline = {
-      pool: Number(fields.pool ?? 0),
-      difficulty: Number(fields.difficulty ?? 0),
-      damage: fields.damage,
-      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
-    };
+    // and any other fields (like AP) the system expects to exist.
+    const systemBaseline = foundry.utils.deepClone(fields ?? {});
 
     // Store for next recalculation
     this._combatOptionsInitialFields = foundry.utils.deepClone(systemBaseline);
     this._combatOptionsDamageBaseline = {
       damage: systemBaseline.damage,
-      ed: foundry.utils.deepClone(systemBaseline.ed)
+      ed: foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 })
     };
 
     const addTooltip = (...args) => tooltips?.add?.(...args);
@@ -1549,10 +1567,10 @@ function ensureWeaponDialogPatched(app) {
 
     // 7. NOW apply combat extender modifications
     // Start fresh from system baseline
-    fields.pool = systemBaseline.pool;
-    fields.difficulty = systemBaseline.difficulty;
+    fields.pool = Number(systemBaseline.pool ?? 0);
+    fields.difficulty = Number(systemBaseline.difficulty ?? 0);
     fields.damage = systemBaseline.damage;
-    fields.ed = foundry.utils.deepClone(systemBaseline.ed);
+    fields.ed = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
 
     const actor = this.actor ?? this.token?.actor ?? null;
     const isEngaged = Boolean(getEngagedEffect(actor));
@@ -1644,7 +1662,7 @@ function ensureWeaponDialogPatched(app) {
     // 10. Store baseline damage before combat options might suppress it
     const baseDamage = fields.damage;
     const baseEdValue = Number(fields.ed?.value ?? 0);
-    const baseEdDice = fields.ed?.dice ?? "";
+    const baseEdDice = Number(fields.ed?.dice ?? 0);
     let damageSuppressed = false;
 
     // 11. Apply combat options
@@ -1681,7 +1699,7 @@ function ensureWeaponDialogPatched(app) {
         
         fields.damage = 0;
         fields.ed.value = 0;
-        fields.ed.dice = "";
+        fields.ed.dice = 0;
         damageSuppressed = true;
       }
 
@@ -1733,7 +1751,7 @@ function ensureWeaponDialogPatched(app) {
       addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
       fields.damage = 0;
       fields.ed.value = 0;
-      fields.ed.dice = "";
+      fields.ed.dice = 0;
       damageSuppressed = true;
     }
 
@@ -1764,6 +1782,7 @@ function ensureWeaponDialogPatched(app) {
     }
     if (!manualOverrides || manualOverrides.ed === undefined) {
       fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
+      fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
     }
 
     // 18. FINAL STEP: Apply manual overrides (always wins)
@@ -1780,6 +1799,7 @@ function ensureWeaponDialogPatched(app) {
       if (manualOverrides.ed !== undefined) {
         fields.ed = foundry.utils.deepClone(manualOverrides.ed);
         fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
+        fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
       }
     }
   };
@@ -1836,7 +1856,9 @@ function updateVisibleFields(app, html) {
     const value = el.type === "number" ? Number(el.value ?? 0) : el.value;
     foundry.utils.setProperty(fields, name, value);
 
-    const manualEd = foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" });
+    const manualEd = foundry.utils.deepClone(fields.ed ?? { value: 0, dice: 0 });
+    manualEd.value = Number(manualEd.value ?? 0);
+    manualEd.dice = Number(manualEd.dice ?? 0);
     const manualSnapshot = {
       pool: fields.pool,
       difficulty: fields.difficulty,
