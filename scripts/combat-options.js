@@ -1526,11 +1526,16 @@ function ensureWeaponDialogPatched(app) {
     const systemBaseline = foundry.utils.deepClone(fields ?? {});
 
     // Store for next recalculation
-    this._combatOptionsInitialFields = foundry.utils.deepClone(systemBaseline);
-    this._combatOptionsDamageBaseline = {
-      damage: systemBaseline.damage,
-      ed: foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 })
-    };
+    if (!this._combatOptionsInitialFields) {
+      this._combatOptionsInitialFields = foundry.utils.deepClone(systemBaseline);
+    }
+
+    if (!this._combatOptionsDamageBaseline) {
+      this._combatOptionsDamageBaseline = {
+        damage: systemBaseline.damage,
+        ed: foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 })
+      };
+    }
 
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
