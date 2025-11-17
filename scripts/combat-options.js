@@ -1438,14 +1438,12 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return;
 
-    // 1. Restore to initial baseline (before combat extender modifications)
-    const initialSnapshot = this._combatOptionsInitialFields;
-    if (initialSnapshot) {
-      fields.pool = initialSnapshot.pool;
-      fields.difficulty = initialSnapshot.difficulty;
-      fields.damage = initialSnapshot.damage;
-      fields.ed = foundry.utils.deepClone(initialSnapshot.ed ?? { value: 0, dice: "" });
-    }
+    // Preserve manual overrides so they can be reapplied after recomputing the system
+    // defaults. This prevents user-entered values from being lost when the dialog
+    // recalculates fields in response to combat option changes.
+    const manualOverrides = this._combatOptionsManualOverrides
+      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
+      : null;
 
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
@@ -1726,24 +1724,34 @@ function ensureWeaponDialogPatched(app) {
     }
 
     // 17. Clamp values to valid ranges
-    fields.pool = Math.max(0, Number(fields.pool ?? 0));
-    fields.difficulty = Math.max(0, Number(fields.difficulty ?? 0));
-    fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
+    const manualPoolOverridden = manualOverrides?.pool !== undefined;
+    const manualDifficultyOverridden = manualOverrides?.difficulty !== undefined;
+    const manualEdOverridden = manualOverrides?.ed?.value !== undefined;
+
+    if (!manualPoolOverridden) {
+      fields.pool = Math.max(0, Number(fields.pool ?? 0));
+    }
+    if (!manualDifficultyOverridden) {
+      fields.difficulty = Math.max(0, Number(fields.difficulty ?? 0));
+    }
+    if (!manualEdOverridden) {
+      fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
+    }
 
     // 18. FINAL STEP: Apply manual overrides (always wins)
-    const manualOverrides = this._combatOptionsManualOverrides;
     if (manualOverrides) {
       if (manualOverrides.pool !== undefined) {
-        fields.pool = manualOverrides.pool;
+        fields.pool = Math.max(0, Number(manualOverrides.pool ?? 0));
       }
       if (manualOverrides.difficulty !== undefined) {
-        fields.difficulty = manualOverrides.difficulty;
+        fields.difficulty = Math.max(0, Number(manualOverrides.difficulty ?? 0));
       }
       if (manualOverrides.damage !== undefined) {
         fields.damage = manualOverrides.damage;
       }
       if (manualOverrides.ed !== undefined) {
         fields.ed = foundry.utils.deepClone(manualOverrides.ed);
+        fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
       }
     }
   };
@@ -2065,11 +2073,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
       // Force a complete recalculation so the system re-applies weapon stats before we
       // layer our modifiers on top of them.
-      app._combatOptionsInitialFields = undefined;
-      app._combatOptionsBaseFields = undefined;
-      if (typeof app.computeInitialFields === 'function') {
-        app.computeInitialFields();
-      }
       if (typeof app.computeFields === 'function') {
         app.computeFields();
       }
