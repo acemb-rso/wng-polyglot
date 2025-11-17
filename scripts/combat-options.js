@@ -1435,6 +1435,17 @@ function ensureWeaponDialogPatched(app) {
   // modifiers on top of the system defaults.
   prototype.computeFields = function () {
     const fields = this.fields ?? (this.fields = {});
+    const manualOverrides = this._combatOptionsManualOverrides;
+
+    const applyManualOverrides = () => {
+      if (!manualOverrides) return;
+      if (manualOverrides.pool !== undefined) fields.pool = manualOverrides.pool;
+      if (manualOverrides.difficulty !== undefined) fields.difficulty = manualOverrides.difficulty;
+      if (manualOverrides.damage !== undefined) fields.damage = manualOverrides.damage;
+      if (manualOverrides.ed !== undefined) {
+        fields.ed = foundry.utils.deepClone(manualOverrides.ed);
+      }
+    };
 
     const initialSnapshot = this._combatOptionsInitialFields;
     if (initialSnapshot) {
@@ -1453,6 +1464,8 @@ function ensureWeaponDialogPatched(app) {
         }
       }
     }
+
+    applyManualOverrides();
 
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
@@ -1487,6 +1500,8 @@ function ensureWeaponDialogPatched(app) {
     } finally {
       restoreTargetSizeTooltip?.();
     }
+
+    applyManualOverrides();
 
     const weapon = this.weapon;
     if (!weapon) return;
@@ -1762,31 +1777,59 @@ function ensureWeaponDialogPatched(app) {
 // manually after each recomputation.
 function updateVisibleFields(app, html) {
   const $html = html instanceof jQuery ? html : $(html);
+
+  const manualFieldSelectors = [
+    'input[name="pool"]',
+    'input[name="difficulty"]',
+    'input[name="damage"]',
+    'input[name="ed.value"]',
+    'input[name="ed.dice"]'
+  ];
   
   const poolInput = $html.find('input[name="pool"]');
   if (poolInput.length && app.fields?.pool !== undefined) {
     poolInput.val(app.fields.pool);
   }
-  
+
   const difficultyInput = $html.find('input[name="difficulty"]');
   if (difficultyInput.length && app.fields?.difficulty !== undefined) {
     difficultyInput.val(app.fields.difficulty);
   }
-  
+
   const damageInput = $html.find('input[name="damage"]');
   if (damageInput.length && app.fields?.damage !== undefined) {
     damageInput.val(app.fields.damage);
   }
-  
+
   const edValueInput = $html.find('input[name="ed.value"]');
   if (edValueInput.length && app.fields?.ed?.value !== undefined) {
     edValueInput.val(app.fields.ed.value);
   }
-  
+
   const edDiceInput = $html.find('input[name="ed.dice"]');
   if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
     edDiceInput.val(app.fields.ed.dice);
   }
+
+  $html.off(".combatOptionsManual");
+  $html.on(`change.combatOptionsManual`, manualFieldSelectors.join(","), (ev) => {
+    const el = ev.currentTarget;
+    const name = el.name;
+    const fields = app.fields ?? (app.fields = {});
+
+    const value = el.type === "number" ? Number(el.value ?? 0) : el.value;
+    foundry.utils.setProperty(fields, name, value);
+
+    const manualEd = foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" });
+    const manualSnapshot = {
+      pool: fields.pool,
+      difficulty: fields.difficulty,
+      damage: fields.damage,
+      ed: manualEd
+    };
+
+    app._combatOptionsManualOverrides = foundry.utils.deepClone(manualSnapshot);
+  });
 }
 
 // Primary entry point: whenever the system renders a weapon dialog we inject our custom
