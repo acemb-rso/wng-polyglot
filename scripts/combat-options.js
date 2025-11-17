@@ -2021,10 +2021,22 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
 
-    if (shouldRecompute) {
+    const recomputeDialogFields = () => {
+      if (typeof app.computeInitialFields === 'function') {
+        app.computeInitialFields();
+      } else if (app._combatOptionsInitialFields) {
+        app.fields = foundry.utils.deepClone(app._combatOptionsInitialFields);
+      } else {
+        app.fields = {};
+      }
+
       if (typeof app.computeFields === 'function') {
         app.computeFields();
       }
+    };
+
+    if (shouldRecompute) {
+      recomputeDialogFields();
       updateVisibleFields(app, $html);
     }
 
@@ -2073,9 +2085,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
       // Force a complete recalculation so the system re-applies weapon stats before we
       // layer our modifiers on top of them.
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
+      recomputeDialogFields();
 
       updateVisibleFields(app, $html);
     });
