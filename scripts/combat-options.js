@@ -1468,11 +1468,10 @@ function ensureWeaponDialogPatched(app) {
       ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
       : null;
 
-    // Reset the dialog fields back to the last system-computed baseline so that
-    // re-running the system `computeFields` function does not keep stacking its
-    // additive modifiers (e.g. weapon damage and range bonuses). We preserve the
-    // user's current combat option selections so the recalculation reflects the
-    // newly toggled values.
+    // Reset to a clean baseline **before** calling the system's computeFields so that
+    // weapon stats and other system modifiers are applied exactly once per
+    // recalculation. Otherwise the system would add its bonuses on top of the
+    // previously computed values, causing stacking whenever the dialog recomputes.
     const preservedOptionState = {
       aim: currentFields.aim,
       charging: currentFields.charging,
@@ -1487,17 +1486,19 @@ function ensureWeaponDialogPatched(app) {
       calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
     };
 
-    if (this._combatOptionsInitialFields || typeof originalDefaultFields === "function") {
-      const baselineFields = this._combatOptionsInitialFields
-        ? foundry.utils.deepClone(this._combatOptionsInitialFields)
-        : foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
+    const baseFields = this._combatOptionsBaseFields
+      ? foundry.utils.deepClone(this._combatOptionsBaseFields)
+      : foundry.utils.deepClone((typeof originalDefaultFields === "function" ? originalDefaultFields.call(this) : {}) ?? {});
 
-      this.fields = foundry.utils.mergeObject(baselineFields, preservedOptionState, {
-        inplace: false,
-        overwrite: true,
-        insertKeys: true
-      });
+    if (!this._combatOptionsBaseFields) {
+      this._combatOptionsBaseFields = foundry.utils.deepClone(baseFields);
     }
+
+    this.fields = foundry.utils.mergeObject(baseFields, preservedOptionState, {
+      inplace: false,
+      overwrite: true,
+      insertKeys: true
+    });
 
     const fields = this.fields ?? (this.fields = {});
 
@@ -1526,11 +1527,16 @@ function ensureWeaponDialogPatched(app) {
     const systemBaseline = foundry.utils.deepClone(fields ?? {});
 
     // Store for next recalculation
-    this._combatOptionsInitialFields = foundry.utils.deepClone(systemBaseline);
-    this._combatOptionsDamageBaseline = {
-      damage: systemBaseline.damage,
-      ed: foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 })
-    };
+    if (!this._combatOptionsInitialFields) {
+      this._combatOptionsInitialFields = foundry.utils.deepClone(systemBaseline);
+    }
+
+    if (!this._combatOptionsDamageBaseline) {
+      this._combatOptionsDamageBaseline = {
+        damage: systemBaseline.damage,
+        ed: foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 })
+      };
+    }
 
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
