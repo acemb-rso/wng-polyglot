@@ -1435,6 +1435,17 @@ function ensureWeaponDialogPatched(app) {
   // modifiers on top of the system defaults.
   prototype.computeFields = function () {
     const fields = this.fields ?? (this.fields = {});
+    const manualOverrides = this._combatOptionsManualOverrides;
+
+    const applyManualOverrides = () => {
+      if (!manualOverrides) return;
+      if (manualOverrides.pool !== undefined) fields.pool = manualOverrides.pool;
+      if (manualOverrides.difficulty !== undefined) fields.difficulty = manualOverrides.difficulty;
+      if (manualOverrides.damage !== undefined) fields.damage = manualOverrides.damage;
+      if (manualOverrides.ed !== undefined) {
+        fields.ed = foundry.utils.deepClone(manualOverrides.ed);
+      }
+    };
 
     const initialSnapshot = this._combatOptionsInitialFields;
     if (initialSnapshot) {
@@ -1453,6 +1464,8 @@ function ensureWeaponDialogPatched(app) {
         }
       }
     }
+
+    applyManualOverrides();
 
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
@@ -1480,6 +1493,8 @@ function ensureWeaponDialogPatched(app) {
     } finally {
       restoreTargetSizeTooltip?.();
     }
+
+    applyManualOverrides();
 
     const weapon = this.weapon;
     if (!weapon) return;
@@ -1772,22 +1787,22 @@ function updateVisibleFields(app, html) {
   if (poolInput.length && app.fields?.pool !== undefined) {
     poolInput.val(app.fields.pool);
   }
-  
+
   const difficultyInput = $html.find('input[name="difficulty"]');
   if (difficultyInput.length && app.fields?.difficulty !== undefined) {
     difficultyInput.val(app.fields.difficulty);
   }
-  
+
   const damageInput = $html.find('input[name="damage"]');
   if (damageInput.length && app.fields?.damage !== undefined) {
     damageInput.val(app.fields.damage);
   }
-  
+
   const edValueInput = $html.find('input[name="ed.value"]');
   if (edValueInput.length && app.fields?.ed?.value !== undefined) {
     edValueInput.val(app.fields.ed.value);
   }
-  
+
   const edDiceInput = $html.find('input[name="ed.dice"]');
   if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
     edDiceInput.val(app.fields.ed.dice);
@@ -1802,18 +1817,15 @@ function updateVisibleFields(app, html) {
     const value = el.type === "number" ? Number(el.value ?? 0) : el.value;
     foundry.utils.setProperty(fields, name, value);
 
-    app._combatOptionsInitialFields = foundry.utils.deepClone({
+    const manualEd = foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" });
+    const manualSnapshot = {
       pool: fields.pool,
       difficulty: fields.difficulty,
       damage: fields.damage,
-      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
-    });
-
-    app._combatOptionsBaseFields = foundry.utils.deepClone(app._combatOptionsInitialFields);
-    app._combatOptionsDamageBaseline = {
-      damage: fields.damage,
-      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
+      ed: manualEd
     };
+
+    app._combatOptionsManualOverrides = foundry.utils.deepClone(manualSnapshot);
   });
 }
 
