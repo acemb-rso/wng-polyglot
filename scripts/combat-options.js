@@ -1434,7 +1434,7 @@ function ensureWeaponDialogPatched(app) {
   // the original implementation provided by the W&G system but layers additional
   // modifiers on top of the system defaults.
   prototype.computeFields = function () {
-    const fields = this.fields ?? (this.fields = {});
+    const currentFields = this.fields ?? (this.fields = {});
     const weapon = this.weapon;
     if (!weapon) return;
 
@@ -1445,6 +1445,38 @@ function ensureWeaponDialogPatched(app) {
       ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
       : null;
 
+    // Reset the dialog fields back to the last system-computed baseline so that
+    // re-running the system `computeFields` function does not keep stacking its
+    // additive modifiers (e.g. weapon damage and range bonuses). We preserve the
+    // user's current combat option selections so the recalculation reflects the
+    // newly toggled values.
+    const preservedOptionState = {
+      aim: currentFields.aim,
+      charging: currentFields.charging,
+      allOutAttack: currentFields.allOutAttack,
+      brace: currentFields.brace,
+      pinning: currentFields.pinning,
+      cover: currentFields.cover,
+      pistolsInMelee: currentFields.pistolsInMelee,
+      disarm: currentFields.disarm,
+      sizeModifier: currentFields.sizeModifier,
+      visionPenalty: currentFields.visionPenalty,
+      calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
+    };
+
+    if (this._combatOptionsInitialFields || typeof originalDefaultFields === "function") {
+      const baselineFields = this._combatOptionsInitialFields
+        ? foundry.utils.deepClone(this._combatOptionsInitialFields)
+        : foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
+
+      this.fields = foundry.utils.mergeObject(baselineFields, preservedOptionState, {
+        inplace: false,
+        overwrite: true,
+        insertKeys: true
+      });
+    }
+
+    const fields = this.fields ?? (this.fields = {});
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
     // 2. Temporarily disable target size tooltip for replacement
