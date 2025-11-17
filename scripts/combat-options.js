@@ -1436,16 +1436,21 @@ function ensureWeaponDialogPatched(app) {
   prototype.computeFields = function () {
     const fields = this.fields ?? (this.fields = {});
     const manualOverrides = this._combatOptionsManualOverrides;
+    const manualSnapshot = manualOverrides ? foundry.utils.deepClone(manualOverrides) : null;
 
     const applyManualOverrides = () => {
-      if (!manualOverrides) return;
-      if (manualOverrides.pool !== undefined) fields.pool = manualOverrides.pool;
-      if (manualOverrides.difficulty !== undefined) fields.difficulty = manualOverrides.difficulty;
-      if (manualOverrides.damage !== undefined) fields.damage = manualOverrides.damage;
-      if (manualOverrides.ed !== undefined) {
-        fields.ed = foundry.utils.deepClone(manualOverrides.ed);
+      if (!manualSnapshot) return;
+      if (manualSnapshot.pool !== undefined) fields.pool = manualSnapshot.pool;
+      if (manualSnapshot.difficulty !== undefined) fields.difficulty = manualSnapshot.difficulty;
+      if (manualSnapshot.damage !== undefined) fields.damage = manualSnapshot.damage;
+      if (manualSnapshot.ed !== undefined) {
+        fields.ed = foundry.utils.deepClone(manualSnapshot.ed);
       }
     };
+
+    const hasManualPool = manualSnapshot?.pool !== undefined;
+    const hasManualDifficulty = manualSnapshot?.difficulty !== undefined;
+    const hasManualEd = manualSnapshot?.ed !== undefined;
 
     const initialSnapshot = this._combatOptionsInitialFields;
     if (initialSnapshot) {
@@ -1465,14 +1470,7 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    applyManualOverrides();
-
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
-
-    this._combatOptionsDamageBaseline = {
-      damage: fields.damage,
-      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
-    };
 
     // Tooltips provide a breakdown of modifiers to the end user. We temporarily disable
     // the default "Target Size" entry so that we can replace it with the recalculated
@@ -1494,10 +1492,22 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip?.();
     }
 
-    applyManualOverrides();
-
     const weapon = this.weapon;
     if (!weapon) return;
+
+    const systemSnapshot = {
+      pool: Number(fields.pool ?? 0),
+      difficulty: Number(fields.difficulty ?? 0),
+      damage: fields.damage,
+      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
+    };
+
+    this._combatOptionsInitialFields = foundry.utils.deepClone(systemSnapshot);
+    this._combatOptionsBaseFields = foundry.utils.deepClone(systemSnapshot);
+    this._combatOptionsDamageBaseline = {
+      damage: systemSnapshot.damage,
+      ed: foundry.utils.deepClone(systemSnapshot.ed ?? { value: 0, dice: "" })
+    };
 
     // Helper used throughout this method to add contextual notes to Foundry's tooltip
     // summary. When tooltips are disabled the call becomes a harmless no-op.
@@ -1522,23 +1532,11 @@ function ensureWeaponDialogPatched(app) {
       fields.pinning = false;
     }
 
-    // `baseSnapshot` captures the system-calculated values before any combat options are
-    // applied. It allows us to reset the state if an option that modifies these fields is
-    // untoggled.
-    const baseSnapshot = {
-      pool: Number(fields.pool ?? 0),
-      difficulty: Number(fields.difficulty ?? 0),
-      damage: fields.damage,
-      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
-    };
-
-    // Preserve the system's computed baseline (including weapon trait scripts and dialog
-    // modifiers) so future recalculations always start from the fully resolved state
-    // provided by the system rather than the pre-script snapshot used for combat
-    // extender adjustments.
-    this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields);
-
-    this._combatOptionsBaseFields = foundry.utils.deepClone(baseSnapshot);
+    let workingPool = systemSnapshot.pool;
+    let workingDifficulty = systemSnapshot.difficulty;
+    let workingDamage = systemSnapshot.damage;
+    let workingEdValue = systemSnapshot.ed?.value ?? 0;
+    let workingEdDice = systemSnapshot.ed?.dice ?? "";
 
     // Determine the size modifier that should apply automatically based on the selected
     // target. Users can override this manually and the flag below remembers that choice
@@ -1565,33 +1563,33 @@ function ensureWeaponDialogPatched(app) {
     const attackerToken = canCheckTargets ? getDialogAttackerToken(this) : null;
     const targetTokens = canCheckTargets ? getDialogTargetTokens(this) : [];
 
-    if (isEngaged && attackerToken && targetTokens.length) {
+    if (isEngaged && attackerToken && targetTokens.length && !hasManualPool && !hasManualDifficulty) {
       const measurement = getCanvasMeasurementContext();
       const hasInvalidTargets = targetTokens.some((targetToken) => !tokensAreEngaged(attackerToken, targetToken, measurement));
 
       if (hasInvalidTargets) {
-        const currentPool = Math.max(0, Number(baseSnapshot.pool ?? 0));
+        const currentPool = Math.max(0, Number(workingPool ?? 0));
         if (currentPool > 0) {
-          baseSnapshot.pool = 0;
+          workingPool = 0;
           addTooltip("pool", -currentPool, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
         } else {
           addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
         }
 
-        const currentDifficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0));
+        const currentDifficulty = Math.max(0, Number(workingDifficulty ?? 0));
         const blockedDifficulty = Math.max(currentDifficulty, 999);
         const difficultyDelta = blockedDifficulty - currentDifficulty;
-        baseSnapshot.difficulty = blockedDifficulty;
+        workingDifficulty = blockedDifficulty;
         addTooltip("difficulty", difficultyDelta, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
       }
     }
 
-    if (engagedWithRangedWeapon) {
+    if (engagedWithRangedWeapon && !hasManualPool && !hasManualDifficulty) {
       if (hasPistolTrait) {
         if (fields.aim) {
-          const aimBonus = Math.min(1, Math.max(0, Number(baseSnapshot.pool ?? 0)));
+          const aimBonus = Math.min(1, Math.max(0, Number(workingPool ?? 0)));
           if (aimBonus > 0) {
-            baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - aimBonus);
+            workingPool = Math.max(0, Number(workingPool ?? 0) - aimBonus);
             addTooltip("pool", -aimBonus, ENGAGED_TOOLTIP_LABELS.aimSuppressed);
           } else {
             addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.aimSuppressed);
@@ -1599,27 +1597,27 @@ function ensureWeaponDialogPatched(app) {
         }
 
         if ((fields.range ?? "") === "short") {
-          const shortBonus = Math.min(1, Math.max(0, Number(baseSnapshot.pool ?? 0)));
+          const shortBonus = Math.min(1, Math.max(0, Number(workingPool ?? 0)));
           if (shortBonus > 0) {
-            baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - shortBonus);
+            workingPool = Math.max(0, Number(workingPool ?? 0) - shortBonus);
             addTooltip("pool", -shortBonus, ENGAGED_TOOLTIP_LABELS.shortRangeSuppressed);
           } else {
             addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.shortRangeSuppressed);
           }
         }
       } else {
-        const currentPool = Math.max(0, Number(baseSnapshot.pool ?? 0));
+        const currentPool = Math.max(0, Number(workingPool ?? 0));
         if (currentPool > 0) {
-          baseSnapshot.pool = 0;
+          workingPool = 0;
           addTooltip("pool", -currentPool, ENGAGED_TOOLTIP_LABELS.rangedBlocked);
         } else {
           addTooltip("pool", 0, ENGAGED_TOOLTIP_LABELS.rangedBlocked);
         }
 
-        const currentDifficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0));
+        const currentDifficulty = Math.max(0, Number(workingDifficulty ?? 0));
         const blockedDifficulty = Math.max(currentDifficulty, 999);
         const difficultyDelta = blockedDifficulty - currentDifficulty;
-        baseSnapshot.difficulty = blockedDifficulty;
+        workingDifficulty = blockedDifficulty;
         addTooltip("difficulty", difficultyDelta, ENGAGED_TOOLTIP_LABELS.rangedBlocked);
       }
     }
@@ -1630,17 +1628,17 @@ function ensureWeaponDialogPatched(app) {
     const baseSizeModifier = SIZE_MODIFIER_OPTIONS[baseSizeKey];
     if (baseSizeModifier) {
       if (baseSizeModifier.pool) {
-        baseSnapshot.pool = Math.max(0, Number(baseSnapshot.pool ?? 0) - baseSizeModifier.pool);
+        workingPool = Math.max(0, Number(workingPool ?? 0) - baseSizeModifier.pool);
       }
       if (baseSizeModifier.difficulty) {
-        baseSnapshot.difficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0) - baseSizeModifier.difficulty);
+        workingDifficulty = Math.max(0, Number(workingDifficulty ?? 0) - baseSizeModifier.difficulty);
       }
     }
 
-    fields.pool = baseSnapshot.pool;
-    fields.difficulty = baseSnapshot.difficulty;
-    fields.damage = baseSnapshot.damage;
-    fields.ed = foundry.utils.deepClone(baseSnapshot.ed ?? { value: 0, dice: "" });
+    fields.pool = workingPool;
+    fields.difficulty = workingDifficulty;
+    fields.damage = workingDamage;
+    fields.ed = { value: workingEdValue, dice: workingEdDice };
     if (!fields.ed) fields.ed = { value: 0, dice: "" };
 
     const baseDamage  = fields.damage;
@@ -1761,9 +1759,21 @@ function ensureWeaponDialogPatched(app) {
       fields.ed.dice  = baseEdDice;
     }
 
-    fields.pool = Math.max(0, Number(fields.pool ?? 0));
-    fields.difficulty = Math.max(0, Number(fields.difficulty ?? 0));
-    fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
+    applyManualOverrides();
+
+    if (!fields.ed) fields.ed = { value: 0, dice: "" };
+
+    if (!hasManualPool) {
+      fields.pool = Math.max(0, Number(fields.pool ?? 0));
+    }
+
+    if (!hasManualDifficulty) {
+      fields.difficulty = Math.max(0, Number(fields.difficulty ?? 0));
+    }
+
+    if (!hasManualEd) {
+      fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
+    }
   };
 
   patchedWeaponDialogPrototypes.add(prototype);
