@@ -1724,17 +1724,13 @@ function ensureWeaponDialogPatched(app) {
     }
 
     // 17. Clamp values to valid ranges
-    const manualPoolOverridden = manualOverrides?.pool !== undefined;
-    const manualDifficultyOverridden = manualOverrides?.difficulty !== undefined;
-    const manualEdOverridden = manualOverrides?.ed?.value !== undefined;
-
-    if (!manualPoolOverridden) {
+    if (!manualOverrides || manualOverrides.pool === undefined) {
       fields.pool = Math.max(0, Number(fields.pool ?? 0));
     }
-    if (!manualDifficultyOverridden) {
+    if (!manualOverrides || manualOverrides.difficulty === undefined) {
       fields.difficulty = Math.max(0, Number(fields.difficulty ?? 0));
     }
-    if (!manualEdOverridden) {
+    if (!manualOverrides || manualOverrides.ed === undefined) {
       fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
     }
 
@@ -2085,7 +2081,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
       // Force a complete recalculation so the system re-applies weapon stats before we
       // layer our modifiers on top of them.
-      recomputeDialogFields();
+      if (typeof app.computeFields === 'function') {
+        app.computeFields();
+    }
 
       updateVisibleFields(app, $html);
     });
