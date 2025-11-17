@@ -2041,10 +2041,14 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     const defaultSize = app._combatOptionsDefaultSizeModifier ?? getTargetSize(app);
     app._combatOptionsDefaultSizeModifier = defaultSize;
     const defaultFieldValue = defaultSize === "average" ? "" : defaultSize;
-    if (app._combatOptionsSizeOverride && (ctx.fields.sizeModifier ?? "") === defaultFieldValue) {
+    const previousSizeModifier = ctx.fields.sizeModifier ?? "";
+    if (app._combatOptionsSizeOverride && previousSizeModifier === defaultFieldValue) {
       app._combatOptionsSizeOverride = false;
     }
     if (!app._combatOptionsSizeOverride) {
+      if (previousSizeModifier !== defaultFieldValue) {
+        shouldRecompute = true;
+      }
       ctx.fields.sizeModifier = defaultFieldValue;
       foundry.utils.setProperty(fields, "sizeModifier", defaultFieldValue);
     }
