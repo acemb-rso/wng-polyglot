@@ -1762,6 +1762,14 @@ function ensureWeaponDialogPatched(app) {
 // manually after each recomputation.
 function updateVisibleFields(app, html) {
   const $html = html instanceof jQuery ? html : $(html);
+
+  const manualFieldSelectors = [
+    'input[name="pool"]',
+    'input[name="difficulty"]',
+    'input[name="damage"]',
+    'input[name="ed.value"]',
+    'input[name="ed.dice"]'
+  ];
   
   const poolInput = $html.find('input[name="pool"]');
   if (poolInput.length && app.fields?.pool !== undefined) {
@@ -1787,6 +1795,29 @@ function updateVisibleFields(app, html) {
   if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
     edDiceInput.val(app.fields.ed.dice);
   }
+
+  $html.off(".combatOptionsManual");
+  $html.on(`change.combatOptionsManual`, manualFieldSelectors.join(","), (ev) => {
+    const el = ev.currentTarget;
+    const name = el.name;
+    const fields = app.fields ?? (app.fields = {});
+
+    const value = el.type === "number" ? Number(el.value ?? 0) : el.value;
+    foundry.utils.setProperty(fields, name, value);
+
+    app._combatOptionsInitialFields = foundry.utils.deepClone({
+      pool: fields.pool,
+      difficulty: fields.difficulty,
+      damage: fields.damage,
+      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
+    });
+
+    app._combatOptionsBaseFields = foundry.utils.deepClone(app._combatOptionsInitialFields);
+    app._combatOptionsDamageBaseline = {
+      damage: fields.damage,
+      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
+    };
+  });
 }
 
 // Primary entry point: whenever the system renders a weapon dialog we inject our custom
