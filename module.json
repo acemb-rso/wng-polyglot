@@ -3,7 +3,7 @@
 	"type": "module",
 	"title": "Wrath & Glory - Combat Extender",
 	"description": "Adds melee/ranged combat options to the Wrath & Glory weapon roll dialog.",
-	"version": "0.6.8b",
+        "version": "0.6.8c",
 	"authors": [
 		{
 			"name": "acemb-rso",
@@ -16,6 +16,13 @@
 	},
         "esmodules": [
                 "scripts/combat-options.js",
+                "scripts/combat-options/constants.js",
+                "scripts/combat-options/dialog.js",
+                "scripts/combat-options/engagement.js",
+                "scripts/combat-options/logging.js",
+                "scripts/combat-options/measurement.js",
+                "scripts/combat-options/permissions.js",
+                "scripts/combat-options/turn-effects.js",
                 "scripts/contested-roll.js"
         ],
         "styles": ["styles/combat-options.css"],
