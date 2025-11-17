@@ -1474,13 +1474,6 @@ function ensureWeaponDialogPatched(app) {
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
 
-    const preCompute = {
-      pool: Number(fields.pool ?? 0),
-      difficulty: Number(fields.difficulty ?? 0),
-      damage: fields.damage,
-      ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
-    };
-
     // Tooltips provide a breakdown of modifiers to the end user. We temporarily disable
     // the default "Target Size" entry so that we can replace it with the recalculated
     // information after our adjustments.
@@ -1538,6 +1531,13 @@ function ensureWeaponDialogPatched(app) {
       damage: fields.damage,
       ed: foundry.utils.deepClone(fields.ed ?? { value: 0, dice: "" })
     };
+
+    // Preserve the system's computed baseline (including dialog modifiers) so future
+    // recalculations always start from a state that respects effect scripts. Without
+    // this, toggling combat extender options could inadvertently discard dialog
+    // modifier changes such as weapon traits.
+    this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields);
+    this._combatOptionsBaseFields = foundry.utils.deepClone(baseSnapshot);
 
     // Determine the size modifier that should apply automatically based on the selected
     // target. Users can override this manually and the flag below remembers that choice
@@ -1635,9 +1635,6 @@ function ensureWeaponDialogPatched(app) {
         baseSnapshot.difficulty = Math.max(0, Number(baseSnapshot.difficulty ?? 0) - baseSizeModifier.difficulty);
       }
     }
-
-    this._combatOptionsInitialFields = foundry.utils.deepClone(preCompute);
-    this._combatOptionsBaseFields = foundry.utils.deepClone(baseSnapshot);
 
     fields.pool = baseSnapshot.pool;
     fields.difficulty = baseSnapshot.difficulty;
