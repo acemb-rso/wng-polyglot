@@ -22,6 +22,8 @@ import {
 } from "./measurement.js";
 import { syncAllOutAttackCondition } from "./turn-effects.js";
 
+const COMBAT_EXTENDER_SCRIPT_ID = `${MODULE_ID}.combat-extender`;
+
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
 // Determine the default target size based on the first selected target. The method reads
@@ -121,6 +123,74 @@ function getDialogTargetTokens(dialog) {
   }
 
   return results;
+}
+
+function combatOptionsActive(fields) {
+  if (!fields) return false;
+
+  return Boolean(
+    fields.allOutAttack ||
+    fields.brace ||
+    fields.pinning ||
+    fields.pistolsInMelee ||
+    fields.disarm ||
+    fields.cover ||
+    fields.visionPenalty ||
+    fields.sizeModifier ||
+    fields.aim ||
+    fields.charging ||
+    fields.calledShot?.enabled
+  );
+}
+
+function registerCombatExtenderDialogScript() {
+  Hooks.once("init", () => {
+    const registerScript = game.wng?.registerScript;
+    if (typeof registerScript !== "function") {
+      logDebug("game.wng.registerScript unavailable; skipping CE dialog script registration");
+      return;
+    }
+
+    registerScript("dialog", {
+      id: COMBAT_EXTENDER_SCRIPT_ID,
+      Label: "Combat Extender",
+      hide: () => false,
+      activate: (dialog) => combatOptionsActive(dialog?.fields),
+      submit: (dialog) => {
+        dialog.flags = dialog.flags ?? {};
+        dialog.flags.combatExtender = {
+          delta: dialog._combatExtenderDelta ?? null,
+          fields: {
+            pool: Number(dialog?.fields?.pool ?? 0),
+            difficulty: Number(dialog?.fields?.difficulty ?? 0),
+            damage: dialog?.fields?.damage ?? 0,
+            ed: {
+              value: Number(dialog?.fields?.ed?.value ?? 0),
+              dice: Number(dialog?.fields?.ed?.dice ?? 0)
+            },
+            ap: {
+              value: Number(dialog?.fields?.ap?.value ?? 0),
+              dice: Number(dialog?.fields?.ap?.dice ?? 0)
+            }
+          }
+        };
+      },
+      script: () => {}
+    });
+  });
+}
+
+registerCombatExtenderDialogScript();
+
+function getTargetCover(dialog) {
+  const target = dialog?.data?.targets?.[0];
+  const actor = target?.actor ?? target?.document?.actor;
+  if (!actor) return "";
+
+  if (actorHasStatus(actor, "fullCover")) return "full";
+  if (actorHasStatus(actor, "halfCover")) return "half";
+
+  return "";
 }
 
 Hooks.once("init", async () => {
@@ -246,88 +316,6 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return wrapped?.apply(this, args);
 
-    const currentFields = foundry.utils.deepClone(this.fields ?? {});
-    this.fields = currentFields;
-
-    // Preserve extended combat option state so we can restore it after rebuilding
-    // the system baseline.
-    const preservedExtendedState = {};
-    for (const key of [
-      "cover", "visionPenalty", "sizeModifier",
-      "allOutAttack", "brace", "pinning", "pistolsInMelee", "disarm"
-    ]) {
-      if (Object.prototype.hasOwnProperty.call(currentFields, key)) {
-        preservedExtendedState[key] = currentFields[key];
-      }
-    }
-
-    // --- 1. Normalise core field structures ------------------------------
-    if (!currentFields.ed) currentFields.ed = { value: 0, dice: 0 };
-    if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
-    if (currentFields.ed.dice === undefined) currentFields.ed.dice = 0;
-
-    if (!currentFields.ap) currentFields.ap = { value: 0, dice: 0 };
-    if (currentFields.ap.value === undefined) currentFields.ap.value = 0;
-    if (currentFields.ap.dice === undefined) currentFields.ap.dice = 0;
-
-    if (currentFields.damage === undefined) currentFields.damage = 0;
-
-    // --- 2. Snapshot manual overrides + purely manual fields -------------
-    const manualOverridesRaw = this._combatOptionsManualOverrides
-      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
-      : null;
-    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
-      ? manualOverridesRaw
-      : null;
-
-    logDebug("WeaponDialog.computeFields: captured manual overrides", {
-      manualOverrides,
-      currentFields: foundry.utils.deepClone(currentFields)
-    });
-
-    // ED “pip” distribution and rollMode are always manual in the core system:
-    const preservedDamageDice = foundry.utils.deepClone(currentFields.damageDice ?? null);
-    const preservedRollMode   = currentFields.rollMode;
-
-    // Keep range / aim / charge / called shot state so the system can
-    // re-apply its own modifiers correctly on the fresh baseline.
-    const preservedOptionState = {
-      distance: currentFields.distance,
-      range:    currentFields.range,
-      aim:      currentFields.aim,
-      charging: currentFields.charging,
-      calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
-    };
-
-    // Build a baseline for the system compute that contains the current dialog state but
-    // resets stacking-prone fields to their initial values.
-    const initialFields = this.initialFields
-      ? foundry.utils.deepClone(this.initialFields)
-      : null;
-    const defaultFields = typeof originalDefaultFields === "function"
-      ? foundry.utils.deepClone(originalDefaultFields.call(this) ?? {})
-      : {};
-
-    const baseInitialPool = Number.isFinite(initialFields?.pool)
-      ? Number(initialFields.pool)
-      : Number(defaultFields?.pool ?? 0);
-    const baseInitialDifficulty = Number.isFinite(initialFields?.difficulty)
-      ? Number(initialFields.difficulty)
-      : Number(defaultFields?.difficulty ?? 0);
-
-    const systemResetFields = foundry.utils.deepClone(currentFields);
-
-    if (!systemResetFields.ed) systemResetFields.ed = { value: 0, dice: 0 };
-    if (!systemResetFields.ap) systemResetFields.ap = { value: 0, dice: 0 };
-
-    systemResetFields.pool = Number.isFinite(baseInitialPool) ? baseInitialPool : 0;
-    systemResetFields.difficulty = Number.isFinite(baseInitialDifficulty) ? baseInitialDifficulty : 0;
-    systemResetFields.damage = 0;
-    systemResetFields.ed.value = 0;
-    systemResetFields.ap.value = 0;
-
-    this.fields = systemResetFields;
-
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
     if (tooltips && typeof tooltips.finish === "function") {
@@ -341,7 +329,7 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
     }
 
-    // --- 3. Let the system compute once, then snapshot the baseline ------
+    // --- 1. Let the system compute once, then snapshot the baseline ------
     try {
       // This runs the original WeaponDialog/AttackDialog computeFields,
       // including all weapon trait scripts (Red-Dot, Salvo, Sniper, etc.)
@@ -351,31 +339,55 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip?.();
     }
 
-    // Whatever the system + traits produced is our baseline.
-    const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
-    const measuredDistance = Number.isFinite(systemBaseline.distance)
-      ? Number(systemBaseline.distance)
+    const fields = this.fields ?? (this.fields = {});
+    const systemBaseline = foundry.utils.deepClone(fields);
+
+    // Snapshot manual overrides so we can re-apply them after CE adjustments
+    const manualOverridesRaw = this._combatOptionsManualOverrides
+      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
+      : null;
+    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
+      ? manualOverridesRaw
       : null;
 
-    const fields = this.fields ?? (this.fields = {});
-    const addTooltip = (...args) => tooltips?.add?.(...args);
+    logDebug("WeaponDialog.computeFields: captured manual overrides", {
+      manualOverrides,
+      systemBaseline: foundry.utils.deepClone(systemBaseline)
+    });
 
-    // Start from clean system values
+    // Remove the previously-applied CE delta so we always compute from the fresh baseline
+    const lastDelta = this._combatExtenderDelta || null;
+    if (lastDelta) {
+      fields.pool = Number(fields.pool ?? 0) - (lastDelta.pool ?? 0);
+      fields.difficulty = Number(fields.difficulty ?? 0) - (lastDelta.difficulty ?? 0);
+      fields.damage = (fields.damage ?? 0) - (lastDelta.damage ?? 0);
+
+      if (fields.ed) {
+        fields.ed.value = Number(fields.ed.value ?? 0) - (lastDelta.ed?.value ?? 0);
+        fields.ed.dice = Number(fields.ed.dice ?? 0) - (lastDelta.ed?.dice ?? 0);
+      }
+
+      if (fields.ap) {
+        fields.ap.value = Number(fields.ap.value ?? 0) - (lastDelta.ap?.value ?? 0);
+        fields.ap.dice = Number(fields.ap.dice ?? 0) - (lastDelta.ap?.dice ?? 0);
+      }
+    }
+
+    // Start from the system's output before layering CE modifiers
     fields.pool       = Number(systemBaseline.pool ?? 0);
     fields.difficulty = Number(systemBaseline.difficulty ?? 0);
     fields.damage     = systemBaseline.damage;
     fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
     fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? { value: 0, dice: 0 });
 
-    // Restore purely manual fields (the system never sets these)
+    // ED “pip” distribution and rollMode are always manual in the core system:
+    const preservedDamageDice = foundry.utils.deepClone(fields.damageDice ?? null);
+    const preservedRollMode   = fields.rollMode;
+
+    const addTooltip = (...args) => tooltips?.add?.(...args);
+
     if (preservedDamageDice) fields.damageDice = preservedDamageDice;
     if (preservedRollMode !== undefined) fields.rollMode = preservedRollMode;
-
-    // Restore extended combat option state captured before rebuilding the baseline so
-    // subsequent calculations respect the user's selections.
-    for (const [key, value] of Object.entries(preservedExtendedState)) {
-      fields[key] = value;
-    }
 
     // --- 4. Size resolution (default vs override) ------------------------
     const defaultSize = getTargetSize(this);
@@ -612,6 +624,21 @@ function ensureWeaponDialogPatched(app) {
       fields.ed.dice  = baseEdDice;
     }
 
+    const delta = {
+      pool: Number(fields.pool ?? 0) - Number(systemBaseline.pool ?? 0),
+      difficulty: Number(fields.difficulty ?? 0) - Number(systemBaseline.difficulty ?? 0),
+      damage: (fields.damage ?? 0) - (systemBaseline.damage ?? 0),
+      ed: {
+        value: Number(fields.ed?.value ?? 0) - Number(systemBaseline.ed?.value ?? 0),
+        dice: Number(fields.ed?.dice ?? 0) - Number(systemBaseline.ed?.dice ?? 0)
+      },
+      ap: {
+        value: Number(fields.ap?.value ?? 0) - Number(systemBaseline.ap?.value ?? 0),
+        dice: Number(fields.ap?.dice ?? 0) - Number(systemBaseline.ap?.dice ?? 0)
+      }
+    };
+    this._combatExtenderDelta = delta;
+
     // --- 14. Clamp, then re-apply manual overrides -----------------------
     if (!manualOverrides || manualOverrides.pool === undefined) {
       fields.pool = Math.max(0, Number(fields.pool ?? 0));
@@ -661,19 +688,7 @@ function ensureWeaponDialogPatched(app) {
     const isEngagedForSafety = Boolean(getEngagedEffect(actorForSafety));
     const engagedRangedForSafety = Boolean(weapon?.isRanged && isEngagedForSafety);
 
-    const hasAnyCombatOption = Boolean(
-      fields.allOutAttack ||
-      fields.brace ||
-      fields.pinning ||
-      fields.pistolsInMelee ||
-      fields.disarm ||
-      fields.cover ||
-      fields.visionPenalty ||
-      fields.sizeModifier ||
-      fields.aim ||
-      fields.charging ||
-      fields.calledShot?.enabled
-    );
+    const hasAnyCombatOption = combatOptionsActive(fields);
 
     logDebug("WeaponDialog.computeFields: baseline vs final after CE", {
    baselinePool: systemBaseline.pool,
