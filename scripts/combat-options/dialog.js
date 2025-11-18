@@ -259,57 +259,6 @@ function ensureWeaponDialogPatched(app) {
     const currentFields = foundry.utils.deepClone(this.fields ?? {});
     this.fields = currentFields;
 
-    // If a manual input is mid-edit (no blur/change event yet) pull the value directly
-    // from the rendered inputs so we don't lose the player's in-progress override when
-    // this recomputation runs (for example after toggling a combat option).
-    try {
-      const elementRoot = this.element ?? null;
-      const element = elementRoot ? (elementRoot instanceof jQuery ? elementRoot : $(elementRoot)) : null;
-      if (element?.length) {
-        const manualSnapshot = foundry.utils.deepClone(this._combatOptionsManualOverrides ?? {});
-        const syncManualOverride = (selector, path, accumulator) => {
-          const input = element.find(selector);
-          if (!input?.length) return;
-
-          const rawValue = input[0].type === "number"
-            ? Number(input.val() ?? 0)
-            : input.val();
-
-          foundry.utils.setProperty(currentFields, path, rawValue);
-
-          if (path === "pool" || path === "difficulty" || path === "damage" || path === "wrath") {
-            accumulator[path] = rawValue;
-          } else if (path.startsWith("ed.")) {
-            const ed = foundry.utils.deepClone(accumulator.ed ?? {});
-            ed.value = Number(foundry.utils.getProperty(currentFields, "ed.value") ?? 0);
-            ed.dice  = Number(foundry.utils.getProperty(currentFields, "ed.dice") ?? 0);
-            accumulator.ed = ed;
-          } else if (path.startsWith("ap.")) {
-            const ap = foundry.utils.deepClone(accumulator.ap ?? {});
-            ap.value = Number(foundry.utils.getProperty(currentFields, "ap.value") ?? 0);
-            ap.dice  = Number(foundry.utils.getProperty(currentFields, "ap.dice") ?? 0);
-            accumulator.ap = ap;
-          }
-        };
-
-        syncManualOverride('input[name="pool"]', "pool", manualSnapshot);
-        syncManualOverride('input[name="difficulty"]', "difficulty", manualSnapshot);
-        syncManualOverride('input[name="damage"]', "damage", manualSnapshot);
-        syncManualOverride('input[name="ed.value"]', "ed.value", manualSnapshot);
-        syncManualOverride('input[name="ed.dice"]', "ed.dice", manualSnapshot);
-        syncManualOverride('input[name="ap.value"]', "ap.value", manualSnapshot);
-        syncManualOverride('input[name="ap.dice"]', "ap.dice", manualSnapshot);
-        syncManualOverride('input[name="wrath"]', "wrath", manualSnapshot);
-
-        const hasManualOverrides = Object.keys(manualSnapshot).length > 0;
-        this._combatOptionsManualOverrides = hasManualOverrides
-          ? foundry.utils.deepClone(manualSnapshot)
-          : null;
-      }
-    } catch (err) {
-      logDebug("WeaponDialog.computeFields: failed to pull live manual overrides", err);
-    }
-
     // Preserve extended combat option state so we can restore it after rebuilding
     // the system baseline.
     const preservedExtendedState = {};
