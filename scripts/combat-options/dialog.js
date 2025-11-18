@@ -10,7 +10,7 @@ import {
   SIZE_OPTION_KEYS
 } from "./constants.js";
 import { getEngagedEffect, isActiveScene } from "./engagement.js";
-import { log, logError } from "./logging.js";
+import { log, logDebug, logError } from "./logging.js";
 import {
   getCanvasMeasurementContext,
   getCoverDifficulty,
@@ -291,6 +291,11 @@ function ensureWeaponDialogPatched(app) {
     const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
       ? manualOverridesRaw
       : null;
+
+    logDebug("WeaponDialog.computeFields: captured manual overrides", {
+      manualOverrides,
+      currentFields: foundry.utils.deepClone(currentFields)
+    });
 
     // ED “pip” distribution and rollMode are always manual in the core system:
     const preservedDamageDice = foundry.utils.deepClone(currentFields.damageDice ?? null);
@@ -625,6 +630,7 @@ function ensureWeaponDialogPatched(app) {
     }
 
     if (manualOverrides) {
+      logDebug("WeaponDialog.computeFields: re-applying manual overrides", manualOverrides);
       if (manualOverrides.pool !== undefined) {
         fields.pool = Math.max(0, Number(manualOverrides.pool ?? 0));
       }
@@ -767,6 +773,11 @@ function updateVisibleFields(app, html) {
     app._combatOptionsManualOverrides = hasManualOverrides
       ? foundry.utils.deepClone(manualSnapshot)
       : null;
+
+    logDebug("WeaponDialog: manual override snapshot updated", {
+      field: name,
+      manualOverrides: app._combatOptionsManualOverrides
+    });
   });
 }
 
