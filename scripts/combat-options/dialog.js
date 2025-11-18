@@ -262,8 +262,8 @@ function ensureWeaponDialogPatched(app) {
     // from the rendered inputs so we don't lose the player's in-progress override when
     // this recomputation runs (for example after toggling a combat option).
     try {
-      const element = this.element?.length ? this.element : null;
-      if (element) {
+      const element = this.element ? $(this.element) : null;
+      if (element?.length) {
         const manualSnapshot = foundry.utils.deepClone(this._combatOptionsManualOverrides ?? {});
         const syncManualOverride = (selector, path, accumulator) => {
           const input = element.find(selector);
