@@ -250,59 +250,33 @@ function ensureWeaponDialogPatched(app) {
   };
 
   // Recalculate attack statistics after toggling any combat option. The method mirrors
-  // the original implementation provided by the W&G system but layers additional
-  // modifiers on top of the system defaults. The system computation is always executed
-  // against a fresh clone of the initial dialog state to avoid stacking values.
+  // the original implementation provided by the W&G system, lets the system compute its
+  // own fields first, and then layers additional modifiers on top of those results.
   prototype.computeFields = function () {
-    const currentFields = this.fields ?? (this.fields = {});
+    const fields = this.fields ?? (this.fields = {});
     const weapon = this.weapon;
     if (!weapon) return;
 
-    // Ensure core field objects exist with the structure expected by the system before
-    // any further processing occurs.
-    if (!currentFields.ed) {
-      currentFields.ed = { value: 0, dice: 0 };
-    } else {
-      if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
-      if (currentFields.ed.dice === undefined) currentFields.ed.dice = 0;
+    if (typeof fields.ed === "number") fields.ed = { value: fields.ed, dice: 0 };
+    if (!fields.ed) fields.ed = { value: 0, dice: 0 };
+    if (fields.ed.value === undefined) fields.ed.value = 0;
+    if (fields.ed.dice === undefined) fields.ed.dice = 0;
+
+    if (typeof fields.ap === "number") fields.ap = { value: fields.ap, dice: 0 };
+    if (!fields.ap) fields.ap = { value: 0, dice: 0 };
+    if (fields.ap.value === undefined) fields.ap.value = 0;
+    if (fields.ap.dice === undefined) fields.ap.dice = 0;
+
+    if (fields.damage === undefined) {
+      fields.damage = 0;
     }
 
-    if (!currentFields.ap) {
-      currentFields.ap = { value: 0, dice: 0 };
-    } else {
-      if (currentFields.ap.value === undefined) currentFields.ap.value = 0;
-      if (currentFields.ap.dice === undefined) currentFields.ap.dice = 0;
-    }
-
-    if (currentFields.damage === undefined) {
-      currentFields.damage = 0;
-    }
-
-    // Preserve manual overrides so they can be reapplied after recomputing the system
-    // defaults. This prevents user-entered values from being lost when the dialog
-    // recalculates fields in response to combat option changes.
     const manualOverridesRaw = this._combatOptionsManualOverrides
       ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
       : null;
     const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
       ? manualOverridesRaw
       : null;
-
-    const preservedOptionState = {
-      distance: currentFields.distance,
-      range: currentFields.range,
-      aim: currentFields.aim,
-      charging: currentFields.charging,
-      allOutAttack: currentFields.allOutAttack,
-      brace: currentFields.brace,
-      pinning: currentFields.pinning,
-      cover: currentFields.cover,
-      pistolsInMelee: currentFields.pistolsInMelee,
-      disarm: currentFields.disarm,
-      sizeModifier: currentFields.sizeModifier,
-      visionPenalty: currentFields.visionPenalty,
-      calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
-    };
 
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
@@ -315,44 +289,35 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
     }
 
-    // Build the system baseline from scratch using the original pipeline so dialog
-    // modifiers and status effects are reapplied on every recompute. Seed the
-    // baseline with the preserved option state so the system computation respects
-    // the player's current selections (aim, range, charging, etc.).
     const previousComputeFields = this.computeFields;
-    const systemDefaults = foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
-    const seededDefaults = foundry.utils.mergeObject(systemDefaults, preservedOptionState, {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true
-    });
-    this.fields = seededDefaults;
+    const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
+      ? this.computeInitialFields
+      : originalComputeInitialFields;
 
     try {
-      const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
-        ? this.computeInitialFields
-        : originalComputeInitialFields;
-
-      if (typeof computeInitialFieldsFn === "function") {
+      if (typeof computeInitialFieldsFn === "function" && !this._initialFieldsComputed) {
         this.computeFields = function (...args) {
           return originalComputeFields.apply(this, args);
         };
         computeInitialFieldsFn.call(this);
-        originalComputeFields.call(this);
-      } else {
-        originalComputeFields.call(this);
+        this._initialFieldsComputed = true;
       }
+
+      originalComputeFields.call(this);
     } finally {
       this.computeFields = previousComputeFields;
       restoreTargetSizeTooltip?.();
     }
 
     const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
-    const fields = this.fields ?? (this.fields = {});
+    fields.pool = Number(systemBaseline.pool ?? 0);
+    fields.difficulty = Number(systemBaseline.difficulty ?? 0);
+    fields.damage = systemBaseline.damage;
+    fields.ed = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
+    fields.ap = foundry.utils.deepClone(systemBaseline.ap ?? { value: 0, dice: 0 });
+
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
-
-    // 5. Determine default size and update size modifier field
     const defaultSize = getTargetSize(this);
     this._combatOptionsDefaultSizeModifier = defaultSize;
     const defaultSizeFieldValue = defaultSize === "average" ? "" : defaultSize;
@@ -367,10 +332,9 @@ function ensureWeaponDialogPatched(app) {
     const normalizedSizeModifier = normalizeSizeKey(fields.sizeModifier || defaultSizeFieldValue || defaultSize);
     fields.sizeModifier = normalizedSizeModifier === "average" ? "" : normalizedSizeModifier;
 
-    // 6. Check pinning eligibility and resolve
     const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
     const canPinning = Boolean(weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
-    
+
     let pinningResolve = null;
     if (typeof this._combatOptionsPinningResolve === "number" && Number.isFinite(this._combatOptionsPinningResolve)) {
       pinningResolve = Math.max(0, Math.round(this._combatOptionsPinningResolve));
@@ -381,28 +345,18 @@ function ensureWeaponDialogPatched(app) {
         this._combatOptionsPinningResolve = pinningResolve;
       }
     }
-    
+
     if (!canPinning && fields.pinning) {
       fields.pinning = false;
     }
-
-    // 7. NOW apply combat extender modifications
-    // Start fresh from system baseline
-    fields.pool = Number(systemBaseline.pool ?? 0);
-    fields.difficulty = Number(systemBaseline.difficulty ?? 0);
-    fields.damage = systemBaseline.damage;
-    fields.ed = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
 
     const actor = this.actor ?? this.token?.actor ?? null;
     const isEngaged = Boolean(getEngagedEffect(actor));
     const pistolTrait = weapon?.system?.traits;
     const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
 
-    // 8. Remove system-computed size modifier (we'll re-apply user's choice later)
-    const baseSizeKey = this._combatOptionsSizeOverride
-      ? normalizeSizeKey(fields.sizeModifier)
-      : defaultSize;
-    const systemAppliedSizeModifier = SIZE_MODIFIER_OPTIONS[baseSizeKey];
+    const defaultSizeKey = normalizeSizeKey(defaultSize || "average");
+    const systemAppliedSizeModifier = SIZE_MODIFIER_OPTIONS[defaultSizeKey];
     if (systemAppliedSizeModifier) {
       if (systemAppliedSizeModifier.pool) {
         fields.pool = Math.max(0, fields.pool - systemAppliedSizeModifier.pool);
