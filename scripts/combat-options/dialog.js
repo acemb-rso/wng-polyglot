@@ -256,7 +256,8 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return wrapped?.apply(this, args);
 
-    const currentFields = this.fields ?? (this.fields = {});
+    const currentFields = foundry.utils.deepClone(this.fields ?? {});
+    this.fields = currentFields;
 
     // If a manual input is mid-edit (no blur/change event yet) pull the value directly
     // from the rendered inputs so we don't lose the player's in-progress override when
@@ -358,6 +359,35 @@ function ensureWeaponDialogPatched(app) {
       charging: currentFields.charging,
       calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
     };
+
+    // Build a baseline for the system compute that contains the current dialog state but
+    // resets stacking-prone fields to their initial values.
+    const initialFields = this.initialFields
+      ? foundry.utils.deepClone(this.initialFields)
+      : null;
+    const defaultFields = typeof originalDefaultFields === "function"
+      ? foundry.utils.deepClone(originalDefaultFields.call(this) ?? {})
+      : {};
+
+    const baseInitialPool = Number.isFinite(initialFields?.pool)
+      ? Number(initialFields.pool)
+      : Number(defaultFields?.pool ?? 0);
+    const baseInitialDifficulty = Number.isFinite(initialFields?.difficulty)
+      ? Number(initialFields.difficulty)
+      : Number(defaultFields?.difficulty ?? 0);
+
+    const systemResetFields = foundry.utils.deepClone(currentFields);
+
+    if (!systemResetFields.ed) systemResetFields.ed = { value: 0, dice: 0 };
+    if (!systemResetFields.ap) systemResetFields.ap = { value: 0, dice: 0 };
+
+    systemResetFields.pool = Number.isFinite(baseInitialPool) ? baseInitialPool : 0;
+    systemResetFields.difficulty = Number.isFinite(baseInitialDifficulty) ? baseInitialDifficulty : 0;
+    systemResetFields.damage = 0;
+    systemResetFields.ed.value = 0;
+    systemResetFields.ap.value = 0;
+
+    this.fields = systemResetFields;
 
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
