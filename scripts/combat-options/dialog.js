@@ -265,6 +265,134 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return wrapped?.apply(this, args);
 
+    const currentFields = foundry.utils.deepClone(this.fields ?? {});
+    this.fields = currentFields;
+
+    // If a manual input is mid-edit (no blur/change event yet) pull the value directly
+    // from the rendered inputs so we don't lose the player's in-progress override when
+    // this recomputation runs (for example after toggling a combat option).
+    try {
+      const elementRoot = this.element ?? null;
+      const element = elementRoot ? (elementRoot instanceof jQuery ? elementRoot : $(elementRoot)) : null;
+      if (element?.length) {
+        const manualSnapshot = foundry.utils.deepClone(this._combatOptionsManualOverrides ?? {});
+        const syncManualOverride = (selector, path, accumulator) => {
+          const input = element.find(selector);
+          if (!input?.length) return;
+
+          const rawValue = input[0].type === "number"
+            ? Number(input.val() ?? 0)
+            : input.val();
+
+          foundry.utils.setProperty(currentFields, path, rawValue);
+
+          if (path === "pool" || path === "difficulty" || path === "damage" || path === "wrath") {
+            accumulator[path] = rawValue;
+          } else if (path.startsWith("ed.")) {
+            const ed = foundry.utils.deepClone(accumulator.ed ?? {});
+            ed.value = Number(foundry.utils.getProperty(currentFields, "ed.value") ?? 0);
+            ed.dice  = Number(foundry.utils.getProperty(currentFields, "ed.dice") ?? 0);
+            accumulator.ed = ed;
+          } else if (path.startsWith("ap.")) {
+            const ap = foundry.utils.deepClone(accumulator.ap ?? {});
+            ap.value = Number(foundry.utils.getProperty(currentFields, "ap.value") ?? 0);
+            ap.dice  = Number(foundry.utils.getProperty(currentFields, "ap.dice") ?? 0);
+            accumulator.ap = ap;
+          }
+        };
+
+        syncManualOverride('input[name="pool"]', "pool", manualSnapshot);
+        syncManualOverride('input[name="difficulty"]', "difficulty", manualSnapshot);
+        syncManualOverride('input[name="damage"]', "damage", manualSnapshot);
+        syncManualOverride('input[name="ed.value"]', "ed.value", manualSnapshot);
+        syncManualOverride('input[name="ed.dice"]', "ed.dice", manualSnapshot);
+        syncManualOverride('input[name="ap.value"]', "ap.value", manualSnapshot);
+        syncManualOverride('input[name="ap.dice"]', "ap.dice", manualSnapshot);
+        syncManualOverride('input[name="wrath"]', "wrath", manualSnapshot);
+
+        const hasManualOverrides = Object.keys(manualSnapshot).length > 0;
+        this._combatOptionsManualOverrides = hasManualOverrides
+          ? foundry.utils.deepClone(manualSnapshot)
+          : null;
+      }
+    } catch (err) {
+      logDebug("WeaponDialog.computeFields: failed to pull live manual overrides", err);
+    }
+
+    // Preserve extended combat option state so we can restore it after rebuilding
+    // the system baseline.
+    const preservedExtendedState = {};
+    for (const key of [
+      "cover", "visionPenalty", "sizeModifier",
+      "allOutAttack", "brace", "pinning", "pistolsInMelee", "disarm"
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(currentFields, key)) {
+        preservedExtendedState[key] = currentFields[key];
+      }
+    }
+
+    // --- 1. Normalise core field structures ------------------------------
+    if (!currentFields.ed) currentFields.ed = { value: 0, dice: 0 };
+    if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
+    if (currentFields.ed.dice === undefined) currentFields.ed.dice = 0;
+
+    if (!currentFields.ap) currentFields.ap = { value: 0, dice: 0 };
+    if (currentFields.ap.value === undefined) currentFields.ap.value = 0;
+    if (currentFields.ap.dice === undefined) currentFields.ap.dice = 0;
+
+    if (currentFields.damage === undefined) currentFields.damage = 0;
+
+    // --- 2. Snapshot manual overrides + purely manual fields -------------
+    const manualOverridesRaw = this._combatOptionsManualOverrides
+      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
+      : null;
+    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
+      ? manualOverridesRaw
+      : null;
+
+    // ED “pip” distribution and rollMode are always manual in the core system:
+    const preservedDamageDice = foundry.utils.deepClone(currentFields.damageDice ?? null);
+    const preservedRollMode   = currentFields.rollMode;
+
+    // Keep range / aim / charge / called shot state so the system can
+    // re-apply its own modifiers correctly on the fresh baseline.
+    const preservedOptionState = {
+      distance: currentFields.distance,
+      range:    currentFields.range,
+      aim:      currentFields.aim,
+      charging: currentFields.charging,
+      calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
+    };
+
+    // Build a baseline for the system compute that contains the current dialog state but
+    // resets stacking-prone fields to their initial values.
+    const initialFields = this.initialFields
+      ? foundry.utils.deepClone(this.initialFields)
+      : null;
+    const defaultFields = typeof originalDefaultFields === "function"
+      ? foundry.utils.deepClone(originalDefaultFields.call(this) ?? {})
+      : {};
+
+    const baseInitialPool = Number.isFinite(initialFields?.pool)
+      ? Number(initialFields.pool)
+      : Number(defaultFields?.pool ?? 0);
+    const baseInitialDifficulty = Number.isFinite(initialFields?.difficulty)
+      ? Number(initialFields.difficulty)
+      : Number(defaultFields?.difficulty ?? 0);
+
+    const systemResetFields = foundry.utils.deepClone(currentFields);
+
+    if (!systemResetFields.ed) systemResetFields.ed = { value: 0, dice: 0 };
+    if (!systemResetFields.ap) systemResetFields.ap = { value: 0, dice: 0 };
+
+    systemResetFields.pool = Number.isFinite(baseInitialPool) ? baseInitialPool : 0;
+    systemResetFields.difficulty = Number.isFinite(baseInitialDifficulty) ? baseInitialDifficulty : 0;
+    systemResetFields.damage = 0;
+    systemResetFields.ed.value = 0;
+    systemResetFields.ap.value = 0;
+
+    this.fields = systemResetFields;
+
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
     if (tooltips && typeof tooltips.finish === "function") {
@@ -298,15 +426,6 @@ function ensureWeaponDialogPatched(app) {
       : null;
 
     const fields = this.fields ?? (this.fields = {});
-
-    // Snapshot manual overrides so we can re-apply them after CE adjustments
-    const manualOverridesRaw = this._combatOptionsManualOverrides
-      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
-      : null;
-    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
-      ? manualOverridesRaw
-      : null;
-
     logDebug("WeaponDialog.computeFields: captured manual overrides", {
       manualOverrides,
       systemBaseline: foundry.utils.deepClone(systemBaseline)
@@ -322,14 +441,21 @@ function ensureWeaponDialogPatched(app) {
       fields.range = systemRange;
     }
 
-    // ED “pip” distribution and rollMode are always manual in the core system:
-    const preservedDamageDice = foundry.utils.deepClone(fields.damageDice ?? null);
-    const preservedRollMode   = fields.rollMode;
-
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
     if (preservedDamageDice) fields.damageDice = preservedDamageDice;
     if (preservedRollMode !== undefined) fields.rollMode = preservedRollMode;
+
+    // Restore extended combat option state captured before rebuilding the baseline so
+    // subsequent calculations respect the user's selections.
+    for (const [key, value] of Object.entries(preservedExtendedState)) {
+      fields[key] = value;
+    }
+
+    // Restore option state (aim, charge, range, called shot) captured before baseline reset
+    for (const [key, value] of Object.entries(preservedOptionState)) {
+      fields[key] = value;
+    }
 
     // --- 4. Size resolution (default vs override) ------------------------
     const defaultSize = getTargetSize(this);
@@ -703,10 +829,7 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
-// Synchronise the visible form controls with the recalculated values. Foundry does not
-// automatically update input elements when `fields` is mutated, so we patch them
-// manually after each recomputation.
-function updateVisibleFields(app, html) {
+function trackManualOverrideSnapshots(app, html) {
   const $html = html instanceof jQuery ? html : $(html);
 
   const manualFieldSelectors = [
@@ -717,44 +840,9 @@ function updateVisibleFields(app, html) {
     'input[name="ed.dice"]',
     'input[name="ap.value"]',
     'input[name="ap.dice"]',
-    'input[name="wrath"]' 
+    'input[name="wrath"]'
   ];
-  
-  const poolInput = $html.find('input[name="pool"]');
-  if (poolInput.length && app.fields?.pool !== undefined) {
-    poolInput.val(app.fields.pool);
-  }
 
-  const difficultyInput = $html.find('input[name="difficulty"]');
-  if (difficultyInput.length && app.fields?.difficulty !== undefined) {
-    difficultyInput.val(app.fields.difficulty);
-  }
-
-  const damageInput = $html.find('input[name="damage"]');
-  if (damageInput.length && app.fields?.damage !== undefined) {
-    damageInput.val(app.fields.damage);
-  }
-
-  const edValueInput = $html.find('input[name="ed.value"]');
-  if (edValueInput.length && app.fields?.ed?.value !== undefined) {
-    edValueInput.val(app.fields.ed.value);
-  }
-
-  const edDiceInput = $html.find('input[name="ed.dice"]');
-  if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
-    edDiceInput.val(app.fields.ed.dice);
-  }
-
-  const apValueInput = $html.find('input[name="ap.value"]');
-  if (apValueInput.length && app.fields?.ap?.value !== undefined) {
-    apValueInput.val(app.fields.ap.value);
-  }
-
-  const apDiceInput = $html.find('input[name="ap.dice"]');
-  if (apDiceInput.length && app.fields?.ap?.dice !== undefined) {
-    apDiceInput.val(app.fields.ap.dice);
-  }
-  
   $html.off(".combatOptionsManual");
   $html.on(`change.combatOptionsManual input.combatOptionsManual`, manualFieldSelectors.join(","), (ev) => {
     const el = ev.currentTarget;
@@ -818,16 +906,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
-
-    // Store the initial computed values so we can reset to them. Some combat options
-    // temporarily replace the base damage/ED, so we cache the pristine state to restore
-    // when the option is toggled off.
-    if (!app._initialFieldsComputed) {
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-      app._initialFieldsComputed = true;
-    }
 
     // Pinning is only available for ranged weapons with a Salvo value above one. The
     // check mirrors the logic in the compute step so the UI stays in sync with gameplay
@@ -919,16 +997,12 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     if (disableAllOutAttack) {
       foundry.utils.setProperty(ctx.fields, "allOutAttack", false);
       foundry.utils.setProperty(fields, "allOutAttack", false);
+      if (previousAllOutAttack) {
+        shouldRecompute = true;
+      }
     }
 
     ctx.disableAllOutAttack = disableAllOutAttack;
-
-    if (disableAllOutAttack && previousAllOutAttack) {
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-      updateVisibleFields(app, $html);
-    }
 
     const currentTargetId = getTargetIdentifier(app);
     if (app._combatOptionsCoverTargetId !== currentTargetId) {
@@ -999,15 +1073,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
 
-    const recomputeDialogFields = () => {
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-    };
-
-    if (shouldRecompute) {
-      recomputeDialogFields();
-      updateVisibleFields(app, $html);
+    if (shouldRecompute && typeof app.render === "function") {
+      app.render(true);
     }
 
     // Remember whether the section is expanded so the dialog can restore the state when
@@ -1023,13 +1090,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
-      const fields = app.fields ?? (app.fields = {});
-
-      foundry.utils.setProperty(fields, name, value);
-
       if (name === "allOutAttack" && disableAllOutAttack) {
-        foundry.utils.setProperty(fields, "allOutAttack", false);
         root.find('input[name="allOutAttack"]').prop("checked", false);
+        if (typeof app._onFieldChange === "function") {
+          app._onFieldChange(ev);
+        }
         return;
       }
 
@@ -1053,40 +1118,21 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
-      // Fields that may trigger weapon traits - invalidate baseline
-      const traitTriggerFields = [
-        "aim",
-        "charging",
-        "range",
-        "calledShot.enabled",
-        "calledShot.size"
-      ];
-
-      if (traitTriggerFields.includes(name)) {
-        app._initialFieldsComputed = false;
+      if (typeof app._onFieldChange === "function") {
+        app._onFieldChange(ev);
       }
-
-      // Force a complete recalculation so the system re-applies weapon stats before we
-      // layer our modifiers on top of them.
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-
-      updateVisibleFields(app, $html);
     });
 
     // Keep the combat calculations in sync with the system range selector. The built-in
     // selector isn't part of our data-co controls, so we need to listen for changes
     // separately and force a full recompute so the system's range modifiers are applied.
-    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", () => {
-      app._initialFieldsComputed = false;
-
-      if (typeof app.computeFields === "function") {
-        app.computeFields();
+    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", (ev) => {
+      if (typeof app._onFieldChange === "function") {
+        app._onFieldChange(ev);
       }
-
-      updateVisibleFields(app, $html);
     });
+
+    trackManualOverrideSnapshots(app, $html);
 
   } catch (err) {
     logError("Failed to render combat options", err);
