@@ -971,8 +971,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
       if (traitTriggerFields.includes(name)) {
         app._combatOptionsInitialFields = undefined;
+        app._combatOptionsBaseFields = undefined;
         app._combatOptionsDamageBaseline = undefined;
         app._combatOptionsManualOverrides = undefined;
+        app._initialFieldsComputed = false;
       }
 
       // Force a complete recalculation so the system re-applies weapon stats before we
