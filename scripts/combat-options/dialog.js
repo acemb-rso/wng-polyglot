@@ -294,6 +294,9 @@ function applyCombatExtender(dialog) {
   fields.ap = foundry.utils.mergeObject({ value: 0, dice: 0 }, fields.ap ?? {}, { inplace: false });
   if (fields.damage === undefined) fields.damage = 0;
 
+  const { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty } = fields;
+  console.debug("CE fields at start:", { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty });
+
   const systemBaseline = foundry.utils.deepClone(fields ?? {});
   const systemDifficulty = Number.isFinite(systemBaseline.difficulty)
     ? Number(systemBaseline.difficulty)
@@ -523,14 +526,18 @@ function applyCombatExtender(dialog) {
     const visionKey     = fields.visionPenalty;
     const visionPenalty = VISION_PENALTIES[visionKey];
     if (visionPenalty) {
+      const previousDifficulty = difficulty;
       const penalty = weapon?.isMelee ? visionPenalty.melee : visionPenalty.ranged;
       if (penalty > 0) difficulty += penalty;
       addTooltip("difficulty", penalty ?? 0, visionPenalty.label);
+      console.debug("CE vision modifier:", { visionKey, penalty, previousDifficulty, nextDifficulty: difficulty });
     }
 
     const sizeKey     = fields.sizeModifier;
     const sizeModifier = SIZE_MODIFIER_OPTIONS[sizeKey];
     if (sizeModifier) {
+      const previousPool = pool;
+      const previousDifficulty = difficulty;
       if (sizeModifier.pool) {
         pool += sizeModifier.pool;
         addTooltip("pool", sizeModifier.pool, sizeModifier.label);
@@ -539,6 +546,7 @@ function applyCombatExtender(dialog) {
         difficulty += sizeModifier.difficulty;
         addTooltip("difficulty", sizeModifier.difficulty, sizeModifier.label);
       }
+      console.debug("CE size modifier:", { sizeKey, previousPool, nextPool: pool, previousDifficulty, nextDifficulty: difficulty });
     }
 
     if (fields.disarm) {
@@ -559,6 +567,8 @@ function applyCombatExtender(dialog) {
       const label = getCoverLabel(coverDelta > 0 ? selectedCover : statusCover);
       if (label) addTooltip("difficulty", coverDelta, label);
     }
+
+    console.debug("CE cover modifier:", { statusCover, selectedCover, coverDelta, nextDifficulty: difficulty });
 
     if (!damageSuppressed) {
       damage   = baseDamage;
@@ -929,6 +939,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
+
+      console.debug("CE change:", name, value);
 
       if (!name) {
         logError("Combat option control missing name attribute", { tagName: el.tagName, type: el.type });
