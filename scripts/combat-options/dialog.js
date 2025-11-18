@@ -252,12 +252,9 @@ function ensureWeaponDialogPatched(app) {
   // Recalculate attack statistics after toggling any combat option. The method mirrors
   // the original implementation provided by the W&G system, lets the system compute its
   // own fields first, and then layers additional modifiers on top of those results.
-    // Recalculate attack statistics after toggling any combat option.
-  // Always rebuild from a fresh system baseline, then layer our modifiers
-  // and finally re-apply any manual overrides.
-  prototype.computeFields = function () {
+  const computeFieldsWrapper = function (wrapped, ...args) {
     const weapon = this.weapon;
-    if (!weapon) return;
+    if (!weapon) return wrapped?.apply(this, args);
 
     const currentFields = this.fields ?? (this.fields = {});
 
@@ -378,7 +375,7 @@ function ensureWeaponDialogPatched(app) {
     try {
       // This runs the original WeaponDialog/AttackDialog computeFields,
       // including all weapon trait scripts (Red-Dot, Salvo, Sniper, etc.)
-      originalComputeFields.call(this);
+      wrapped?.apply(this, args);
     } finally {
       // Always restore the original tooltip.finish, even if something throws
       restoreTargetSizeTooltip?.();
@@ -724,7 +721,24 @@ function ensureWeaponDialogPatched(app) {
       fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? fields.ed);
       fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? fields.ap);
     }
+
+    return this.fields;
   };
+
+  if (typeof libWrapper !== "undefined" && libWrapper?.register) {
+    libWrapper.register(
+      MODULE_ID,
+      prototype,
+      "computeFields",
+      computeFieldsWrapper,
+      "WRAPPER"
+    );
+  } else {
+    logError("libWrapper missing; cannot wrap WeaponDialog.computeFields safely");
+    prototype.computeFields = function (...args) {
+      return computeFieldsWrapper.call(this, originalComputeFields, ...args);
+    };
+  }
 
   // Guard against undefined targets when submitting the dialog. The system dialog
   // expects every target entry to contain an actor, but Foundry can leave
