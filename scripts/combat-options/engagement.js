@@ -4,7 +4,7 @@ import {
   ENGAGED_CONDITION_ID,
   MODULE_ID
 } from "./constants.js";
-import { log, logError } from "./logging.js";
+import { logError } from "./logging.js";
 import {
   collectEngagedTokenIds,
   getCanvasMeasurementContext,
@@ -80,39 +80,10 @@ async function syncEngagedCondition(actor, engaged) {
   }
 }
 
-let reportedMissingAuraSupport = false;
-
-function canUseNativeAuraAutomation() {
-  const auraTransferType = game?.wng?.config?.transferTypes?.aura;
-  if (!auraTransferType) return false;
-
-  const warhammerRoot = game?.warhammer;
-  if (!warhammerRoot || typeof warhammerRoot !== "object") return false;
-
-  const auraManagers = [
-    warhammerRoot.effectManager,
-    warhammerRoot.effectScripts,
-    warhammerRoot.utility?.templates,
-    warhammerRoot.templates
-  ];
-
-  return auraManagers.some((entry) => entry && typeof entry === "object");
-}
-
-function reportMissingAuraAutomation() {
-  if (reportedMissingAuraSupport) return;
-  reportedMissingAuraSupport = true;
-  log("debug", "Falling back to manual Engaged automation because the Wrath & Glory aura pipeline is not exposed to modules.");
-}
-
 function shouldAutoApplyEngaged() {
   const compatibleSystem = game.system?.id === "wrath-and-glory";
   const hasPrimaryGMPermissions = isActivePrimaryGM();
   if (!(compatibleSystem && hasPrimaryGMPermissions)) return false;
-
-  if (!canUseNativeAuraAutomation()) {
-    reportMissingAuraAutomation();
-  }
 
   return true;
 }
