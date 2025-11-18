@@ -319,11 +319,15 @@ function ensureWeaponDialogPatched(app) {
     this.fields = systemDefaults;
 
     try {
-      if (typeof originalComputeInitialFields === "function") {
+      const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
+        ? this.computeInitialFields
+        : originalComputeInitialFields;
+
+      if (typeof computeInitialFieldsFn === "function") {
         this.computeFields = function (...args) {
           return originalComputeFields.apply(this, args);
         };
-        originalComputeInitialFields.call(this);
+        computeInitialFieldsFn.call(this);
       } else {
         originalComputeFields.call(this);
       }
@@ -584,24 +588,7 @@ function ensureWeaponDialogPatched(app) {
       fields.ed.dice = baseEdDice;
     }
 
-    // 17. Reapply any manual overrides the user entered so they persist across
-    // recomputations driven by combat option changes.
-    if (manualOverrides) {
-      if (manualOverrides.pool !== undefined) {
-        fields.pool = Math.max(0, Number(manualOverrides.pool));
-      }
-      if (manualOverrides.difficulty !== undefined) {
-        fields.difficulty = Math.max(0, Number(manualOverrides.difficulty));
-      }
-      if (manualOverrides.damage !== undefined) {
-        fields.damage = manualOverrides.damage;
-      }
-      if (manualOverrides.ed !== undefined) {
-        fields.ed = foundry.utils.deepClone(manualOverrides.ed);
-      }
-    }
-
-    // 17. Clamp values to valid ranges
+    // 17. Clamp values to valid ranges for any fields that are not manually overridden
     if (!manualOverrides || manualOverrides.pool === undefined) {
       fields.pool = Math.max(0, Number(fields.pool ?? 0));
     }
