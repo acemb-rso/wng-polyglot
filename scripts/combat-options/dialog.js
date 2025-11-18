@@ -22,8 +22,6 @@ import {
 } from "./measurement.js";
 import { syncAllOutAttackCondition } from "./turn-effects.js";
 
-const COMBAT_EXTENDER_SCRIPT_ID = `${MODULE_ID}.combat-extender`;
-
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
 // Determine the default target size based on the first selected target. The method reads
@@ -123,74 +121,6 @@ function getDialogTargetTokens(dialog) {
   }
 
   return results;
-}
-
-function combatOptionsActive(fields) {
-  if (!fields) return false;
-
-  return Boolean(
-    fields.allOutAttack ||
-    fields.brace ||
-    fields.pinning ||
-    fields.pistolsInMelee ||
-    fields.disarm ||
-    fields.cover ||
-    fields.visionPenalty ||
-    fields.sizeModifier ||
-    fields.aim ||
-    fields.charging ||
-    fields.calledShot?.enabled
-  );
-}
-
-function registerCombatExtenderDialogScript() {
-  Hooks.once("init", () => {
-    const registerScript = game.wng?.registerScript;
-    if (typeof registerScript !== "function") {
-      logDebug("game.wng.registerScript unavailable; skipping CE dialog script registration");
-      return;
-    }
-
-    registerScript("dialog", {
-      id: COMBAT_EXTENDER_SCRIPT_ID,
-      Label: "Combat Extender",
-      hide: () => false,
-      activate: (dialog) => combatOptionsActive(dialog?.fields),
-      submit: (dialog) => {
-        dialog.flags = dialog.flags ?? {};
-        dialog.flags.combatExtender = {
-          delta: dialog._combatExtenderDelta ?? null,
-          fields: {
-            pool: Number(dialog?.fields?.pool ?? 0),
-            difficulty: Number(dialog?.fields?.difficulty ?? 0),
-            damage: dialog?.fields?.damage ?? 0,
-            ed: {
-              value: Number(dialog?.fields?.ed?.value ?? 0),
-              dice: Number(dialog?.fields?.ed?.dice ?? 0)
-            },
-            ap: {
-              value: Number(dialog?.fields?.ap?.value ?? 0),
-              dice: Number(dialog?.fields?.ap?.dice ?? 0)
-            }
-          }
-        };
-      },
-      script: () => {}
-    });
-  });
-}
-
-registerCombatExtenderDialogScript();
-
-function getTargetCover(dialog) {
-  const target = dialog?.data?.targets?.[0];
-  const actor = target?.actor ?? target?.document?.actor;
-  if (!actor) return "";
-
-  if (actorHasStatus(actor, "fullCover")) return "full";
-  if (actorHasStatus(actor, "halfCover")) return "half";
-
-  return "";
 }
 
 Hooks.once("init", async () => {
@@ -339,6 +269,19 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip?.();
     }
 
+    // Whatever the system + traits produced is our baseline.
+    const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
+    const baselineTargetId = getTargetIdentifier(this);
+    const measuredDistance = Number.isFinite(systemBaseline.distance)
+      ? Number(systemBaseline.distance)
+      : null;
+    const systemRange = typeof systemBaseline.range === "string"
+      ? systemBaseline.range
+      : null;
+    const systemDifficulty = Number.isFinite(systemBaseline.difficulty)
+      ? Number(systemBaseline.difficulty)
+      : null;
+
     const fields = this.fields ?? (this.fields = {});
     const systemBaseline = foundry.utils.deepClone(fields);
 
@@ -379,6 +322,9 @@ function ensureWeaponDialogPatched(app) {
     fields.damage     = systemBaseline.damage;
     fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
     fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? { value: 0, dice: 0 });
+    if (systemRange && !fields.range) {
+      fields.range = systemRange;
+    }
 
     // ED “pip” distribution and rollMode are always manual in the core system:
     const preservedDamageDice = foundry.utils.deepClone(fields.damageDice ?? null);
@@ -452,9 +398,18 @@ function ensureWeaponDialogPatched(app) {
 
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
-      const hasInvalidTargets = targetTokens.some((targetToken) =>
-        !tokensAreEngagedUsingDistance(attackerToken, targetToken, measurement, measuredDistance)
-      );
+      const hasInvalidTargets = targetTokens.some((targetToken) => {
+        const targetMeasuredDistance = targetToken?.id === baselineTargetId
+          ? measuredDistance
+          : null;
+
+        return !tokensAreEngagedUsingDistance(
+          attackerToken,
+          targetToken,
+          measurement,
+          targetMeasuredDistance
+        );
+      });
 
       if (hasInvalidTargets) {
         const currentPool = Math.max(0, fields.pool);
@@ -466,7 +421,10 @@ function ensureWeaponDialogPatched(app) {
         }
 
         const currentDifficulty = Math.max(0, fields.difficulty);
-        const blockedDifficulty = Math.max(currentDifficulty, 999);
+        const baseDifficulty = Number.isFinite(systemDifficulty)
+          ? Math.max(currentDifficulty, systemDifficulty)
+          : currentDifficulty;
+        const blockedDifficulty = Math.max(baseDifficulty, 999);
         fields.difficulty = blockedDifficulty;
         addTooltip("difficulty", blockedDifficulty - currentDifficulty, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
       }
