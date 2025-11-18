@@ -366,45 +366,27 @@ function ensureWeaponDialogPatched(app) {
     if (tooltips && typeof tooltips.finish === "function") {
       const originalFinish = tooltips.finish;
       tooltips.finish = function (...args) {
+        // Let the system do all its normal work, but hide the old
+        // Target Size tooltip so CE can present its own.
         if (args?.[1] === "Target Size") return;
         return originalFinish.apply(this, args);
       };
       restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
     }
 
-    // --- 3. Build a fresh system baseline --------------------------------
-    const previousComputeFields = this.computeFields;
-
-    const systemDefaults = foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
-    const seededDefaults = foundry.utils.mergeObject(systemDefaults, preservedOptionState, {
-      inplace:   false,
-      overwrite: true,
-      insertKeys:true
-    });
-    this.fields = seededDefaults;
-
+    // --- 3. Let the system compute once, then snapshot the baseline ------
     try {
-      const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
-        ? this.computeInitialFields
-        : originalComputeInitialFields;
-
-      if (typeof computeInitialFieldsFn === "function") {
-        // When computeInitialFields calls `this.computeFields()`, we want it to use
-        // the original system implementation, not our patched one.
-        this.computeFields = function (...args) {
-          return originalComputeFields.apply(this, args);
-        };
-        computeInitialFieldsFn.call(this);
-        originalComputeFields.call(this);
-      } else {
-        originalComputeFields.call(this);
-      }
+      // This runs the original WeaponDialog/AttackDialog computeFields,
+      // including all weapon trait scripts (Red-Dot, Salvo, Sniper, etc.)
+      originalComputeFields.call(this);
     } finally {
-      this.computeFields = previousComputeFields;
+      // Always restore the original tooltip.finish, even if something throws
       restoreTargetSizeTooltip?.();
     }
 
+    // Whatever the system + traits produced is our baseline.
     const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
+
     const fields = this.fields ?? (this.fields = {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
