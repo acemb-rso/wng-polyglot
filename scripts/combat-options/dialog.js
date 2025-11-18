@@ -929,6 +929,15 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
+
+      if (!name) {
+        logError("Combat option control missing name attribute", { tagName: el.tagName, type: el.type });
+        return;
+      }
+
+      // Dropdowns and checkboxes share the same handler; only the incoming value type
+      // differs (booleans for checkboxes, strings for selects). Persist the parsed
+      // value so later recomputes see the user's selection regardless of control type.
       if (name === "allOutAttack" && disableAllOutAttack) {
         root.find('input[name="allOutAttack"]').prop("checked", false);
         if (typeof app._onFieldChange === "function") {
@@ -946,6 +955,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       if (name === "cover") {
         app._combatOptionsCoverOverride = true;
       }
+
+      // Persist the new value immediately so the combat calculations see the updated
+      // selection even if the system recomputes the dialog fields before our handlers
+      // run again (which could otherwise reset the dropdowns to their defaults).
+      foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, value);
 
       // Toggle the visibility of the called shot sub-form so that the dialog only shows
       // the additional inputs when the option is active.
