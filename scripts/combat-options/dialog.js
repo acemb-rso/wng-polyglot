@@ -167,10 +167,12 @@ function ensureWeaponDialogPatched(app) {
   const originalPrepareContext = prototype._prepareContext;
   const originalDefaultFields  = prototype._defaultFields;
   const originalComputeFields  = prototype.computeFields;
+  const originalGetSubmissionData = prototype._getSubmissionData;
 
   if (typeof originalPrepareContext !== "function" ||
       typeof originalDefaultFields  !== "function" ||
-      typeof originalComputeFields  !== "function") {
+      typeof originalComputeFields  !== "function" ||
+      typeof originalGetSubmissionData !== "function") {
     logError("WeaponDialog prototype missing expected methods");
     return false;
   }
@@ -628,6 +630,31 @@ function ensureWeaponDialogPatched(app) {
         fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
       }
     }
+  };
+
+  // Guard against undefined targets when submitting the dialog. The system dialog
+  // expects every target entry to contain an actor, but Foundry can leave
+  // placeholder tokens in the list (for example when targets are cleared before
+  // submission). Filter out those entries to prevent `speakerData` access errors
+  // thrown by the upstream implementation.
+  prototype._getSubmissionData = function () {
+    const data = originalGetSubmissionData.call(this);
+
+    if (Array.isArray(data?.targets)) {
+      data.targets = data.targets
+        .map((target) => {
+          const actor = target?.actor ?? target?.document?.actor ?? null;
+          if (!actor) return null;
+
+          const token = target?.document ?? target?.token ?? null;
+          return typeof actor.speakerData === "function"
+            ? actor.speakerData(token)
+            : null;
+        })
+        .filter(Boolean);
+    }
+
+    return data;
   };
 
   patchedWeaponDialogPrototypes.add(prototype);
