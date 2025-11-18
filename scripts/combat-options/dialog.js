@@ -313,10 +313,17 @@ function ensureWeaponDialogPatched(app) {
     }
 
     // Build the system baseline from scratch using the original pipeline so dialog
-    // modifiers and status effects are reapplied on every recompute.
+    // modifiers and status effects are reapplied on every recompute. Seed the
+    // baseline with the preserved option state so the system computation respects
+    // the player's current selections (aim, range, charging, etc.).
     const previousComputeFields = this.computeFields;
     const systemDefaults = foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
-    this.fields = systemDefaults;
+    const seededDefaults = foundry.utils.mergeObject(systemDefaults, preservedOptionState, {
+      inplace: false,
+      overwrite: true,
+      insertKeys: true
+    });
+    this.fields = seededDefaults;
 
     try {
       const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
@@ -335,13 +342,6 @@ function ensureWeaponDialogPatched(app) {
       this.computeFields = previousComputeFields;
       restoreTargetSizeTooltip?.();
     }
-
-    const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
-    this.fields = foundry.utils.mergeObject(foundry.utils.deepClone(systemBaseline), preservedOptionState, {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true
-    });
 
     const fields = this.fields ?? (this.fields = {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
@@ -599,6 +599,10 @@ function ensureWeaponDialogPatched(app) {
       fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
       fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
     }
+    if (!manualOverrides || manualOverrides.ap === undefined) {
+      fields.ap.value = Math.max(0, Number(fields.ap?.value ?? 0));
+      fields.ap.dice = Math.max(0, Number(fields.ap?.dice ?? 0));
+    }
 
     // 18. FINAL STEP: Apply manual overrides (always wins)
     if (manualOverrides) {
@@ -615,6 +619,11 @@ function ensureWeaponDialogPatched(app) {
         fields.ed = foundry.utils.deepClone(manualOverrides.ed);
         fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
         fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
+      }
+      if (manualOverrides.ap !== undefined) {
+        fields.ap = foundry.utils.deepClone(manualOverrides.ap);
+        fields.ap.value = Math.max(0, Number(fields.ap?.value ?? 0));
+        fields.ap.dice = Math.max(0, Number(fields.ap?.dice ?? 0));
       }
     }
   };
@@ -659,7 +668,9 @@ function updateVisibleFields(app, html) {
     'input[name="difficulty"]',
     'input[name="damage"]',
     'input[name="ed.value"]',
-    'input[name="ed.dice"]'
+    'input[name="ed.dice"]',
+    'input[name="ap.value"]',
+    'input[name="ap.dice"]'
   ];
   
   const poolInput = $html.find('input[name="pool"]');
@@ -687,6 +698,16 @@ function updateVisibleFields(app, html) {
     edDiceInput.val(app.fields.ed.dice);
   }
 
+  const apValueInput = $html.find('input[name="ap.value"]');
+  if (apValueInput.length && app.fields?.ap?.value !== undefined) {
+    apValueInput.val(app.fields.ap.value);
+  }
+
+  const apDiceInput = $html.find('input[name="ap.dice"]');
+  if (apDiceInput.length && app.fields?.ap?.dice !== undefined) {
+    apDiceInput.val(app.fields.ap.dice);
+  }
+
   $html.off(".combatOptionsManual");
   $html.on(`change.combatOptionsManual`, manualFieldSelectors.join(","), (ev) => {
     const el = ev.currentTarget;
@@ -699,11 +720,15 @@ function updateVisibleFields(app, html) {
     const manualEd = foundry.utils.deepClone(fields.ed ?? { value: 0, dice: 0 });
     manualEd.value = Number(manualEd.value ?? 0);
     manualEd.dice = Number(manualEd.dice ?? 0);
+    const manualAp = foundry.utils.deepClone(fields.ap ?? { value: 0, dice: 0 });
+    manualAp.value = Number(manualAp.value ?? 0);
+    manualAp.dice = Number(manualAp.dice ?? 0);
     const manualSnapshot = {
       pool: fields.pool,
       difficulty: fields.difficulty,
       damage: fields.damage,
-      ed: manualEd
+      ed: manualEd,
+      ap: manualAp
     };
 
     app._combatOptionsManualOverrides = foundry.utils.deepClone(manualSnapshot);
@@ -734,8 +759,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // temporarily replace the base damage/ED, so we cache the pristine state to restore
     // when the option is toggled off.
     if (!app._initialFieldsComputed) {
-      if (typeof app.computeInitialFields === 'function') {
-        app.computeInitialFields();
+      if (typeof app.computeFields === 'function') {
+        app.computeFields();
       }
       app._initialFieldsComputed = true;
     }
@@ -835,9 +860,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     ctx.disableAllOutAttack = disableAllOutAttack;
 
     if (disableAllOutAttack && previousAllOutAttack) {
-      if (typeof app.computeInitialFields === 'function') {
-        app.computeInitialFields();
-      }
       if (typeof app.computeFields === 'function') {
         app.computeFields();
       }
