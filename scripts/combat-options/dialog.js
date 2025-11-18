@@ -21,6 +21,8 @@ import {
 } from "./measurement.js";
 import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
 
+const dialogBaselines = new WeakMap();
+
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
 // Determine the default target size based on the first selected target. The method reads
