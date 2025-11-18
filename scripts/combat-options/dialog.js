@@ -704,6 +704,36 @@ function ensureWeaponDialogPatched(app) {
         fields.wrath = Math.max(0, Number(manualOverrides.wrath ?? 0));
       }
     }
+      // --- Safety: when CE is "off", trust the system baseline completely ----
+    const actorForSafety = this.actor ?? this.token?.actor ?? null;
+    const isEngagedForSafety = Boolean(getEngagedEffect(actorForSafety));
+    const engagedRangedForSafety = Boolean(weapon?.isRanged && isEngagedForSafety);
+
+    const hasAnyCombatOption = Boolean(
+      fields.allOutAttack ||
+      fields.brace ||
+      fields.pinning ||
+      fields.pistolsInMelee ||
+      fields.disarm ||
+      fields.cover ||
+      fields.visionPenalty ||
+      fields.sizeModifier ||
+      fields.aim ||
+      fields.charging ||
+      fields.calledShot?.enabled
+    );
+
+    if (!this._combatOptionsManualOverrides &&
+        !engagedRangedForSafety &&
+        !hasAnyCombatOption &&
+        typeof systemBaseline.pool === "number") {
+      // Return the system's own results untouched
+      fields.pool       = Number(systemBaseline.pool);
+      fields.difficulty = Number(systemBaseline.difficulty ?? fields.difficulty);
+      fields.damage     = systemBaseline.damage;
+      fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? fields.ed);
+      fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? fields.ap);
+    }
   };
 
   // Guard against undefined targets when submitting the dialog. The system dialog
