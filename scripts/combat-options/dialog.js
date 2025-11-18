@@ -284,6 +284,8 @@ function ensureWeaponDialogPatched(app) {
     // recalculation. Otherwise the system would add its bonuses on top of the
     // previously computed values, causing stacking whenever the dialog recomputes.
     const preservedOptionState = {
+      distance: currentFields.distance,
+      range: currentFields.range,
       aim: currentFields.aim,
       charging: currentFields.charging,
       allOutAttack: currentFields.allOutAttack,
