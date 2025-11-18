@@ -123,6 +123,25 @@ function getDialogTargetTokens(dialog) {
   return results;
 }
 
+function combatOptionsActive(fields) {
+  if (!fields) return false;
+
+  return Boolean(
+    fields.allOutAttack ||
+    fields.charging ||
+    fields.aim ||
+    fields.brace ||
+    fields.pinning ||
+    normalizeCoverKey(fields.cover ?? "") ||
+    fields.pistolsInMelee ||
+    normalizeSizeKey(fields.sizeModifier ?? "") ||
+    fields.visionPenalty ||
+    fields.disarm ||
+    fields.calledShot?.enabled ||
+    normalizeSizeKey(fields.calledShot?.size ?? "")
+  );
+}
+
 Hooks.once("init", async () => {
   // Preload templates to avoid render-time disk access. Foundry caches the compiled
   // templates which gives us a small performance boost during gameplay.
