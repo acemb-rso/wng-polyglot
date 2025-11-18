@@ -21,8 +21,6 @@ import {
 } from "./measurement.js";
 import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
 
-const dialogBaselines = new WeakMap();
-
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
 // Determine the default target size based on the first selected target. The method reads
@@ -172,6 +170,7 @@ function ensureWeaponDialogPatched(app) {
   const originalDefaultFields  = prototype._defaultFields;
   const originalComputeFields  = prototype.computeFields;
   const originalGetSubmissionData = prototype._getSubmissionData;
+  const originalComputeInitialFields = prototype.computeInitialFields;
 
   if (typeof originalPrepareContext !== "function" ||
       typeof originalDefaultFields  !== "function" ||
@@ -302,32 +301,6 @@ function ensureWeaponDialogPatched(app) {
       calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
     };
 
-    // Build or refresh the initial system baseline by re-running the system's
-    // computeInitialFields when necessary. This keeps the baseline aligned with the
-    // actor, weapon, and dialog modifier defaults without preserving stacked values
-    // from prior computations.
-    if (!this._combatOptionsInitialFields) {
-      if (typeof this.computeInitialFields === "function") {
-        this.computeInitialFields();
-      }
-
-      if (!this._combatOptionsInitialFields) {
-        const defaults = originalDefaultFields.call(this) ?? {};
-        this.fields = foundry.utils.deepClone(defaults);
-      }
-
-      this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields ?? {});
-    }
-
-    // Reset fields to a pristine clone of the initial system baseline, then layer the
-    // preserved option state so the system recomputation starts from clean values.
-    const initialBaseline = foundry.utils.deepClone(this._combatOptionsInitialFields ?? {});
-    this.fields = foundry.utils.mergeObject(initialBaseline, preservedOptionState, {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true
-    });
-
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
     if (tooltips && typeof tooltips.finish === "function") {
@@ -339,14 +312,34 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
     }
 
+    // Build the system baseline from scratch using the original pipeline so dialog
+    // modifiers and status effects are reapplied on every recompute.
+    const previousComputeFields = this.computeFields;
+    const systemDefaults = foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
+    this.fields = systemDefaults;
+
     try {
-      originalComputeFields.call(this);
+      if (typeof originalComputeInitialFields === "function") {
+        this.computeFields = function (...args) {
+          return originalComputeFields.apply(this, args);
+        };
+        originalComputeInitialFields.call(this);
+      } else {
+        originalComputeFields.call(this);
+      }
     } finally {
+      this.computeFields = previousComputeFields;
       restoreTargetSizeTooltip?.();
     }
 
+    const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
+    this.fields = foundry.utils.mergeObject(foundry.utils.deepClone(systemBaseline), preservedOptionState, {
+      inplace: false,
+      overwrite: true,
+      insertKeys: true
+    });
+
     const fields = this.fields ?? (this.fields = {});
-    const systemBaseline = foundry.utils.deepClone(fields ?? {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
     // 5. Determine default size and update size modifier field
@@ -855,7 +848,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     ctx.disableAllOutAttack = disableAllOutAttack;
 
     if (disableAllOutAttack && previousAllOutAttack) {
-      app._combatOptionsInitialFields = undefined;
       if (typeof app.computeInitialFields === 'function') {
         app.computeInitialFields();
       }
@@ -935,14 +927,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     root.off(".combatOptions");
 
     const recomputeDialogFields = () => {
-      if (typeof app.computeInitialFields === 'function') {
-        app.computeInitialFields();
-      } else if (app._combatOptionsInitialFields) {
-        app.fields = foundry.utils.deepClone(app._combatOptionsInitialFields);
-      } else {
-        app.fields = {};
-      }
-
       if (typeof app.computeFields === 'function') {
         app.computeFields();
       }
@@ -1006,13 +990,25 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       ];
 
       if (traitTriggerFields.includes(name)) {
-        app._combatOptionsInitialFields = undefined;
         app._initialFieldsComputed = false;
       }
 
       // Force a complete recalculation so the system re-applies weapon stats before we
       // layer our modifiers on top of them.
       if (typeof app.computeFields === 'function') {
+        app.computeFields();
+      }
+
+      updateVisibleFields(app, $html);
+    });
+
+    // Keep the combat calculations in sync with the system range selector. The built-in
+    // selector isn't part of our data-co controls, so we need to listen for changes
+    // separately and force a full recompute so the system's range modifiers are applied.
+    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", () => {
+      app._initialFieldsComputed = false;
+
+      if (typeof app.computeFields === "function") {
         app.computeFields();
       }
 
