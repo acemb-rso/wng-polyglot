@@ -265,6 +265,134 @@ function ensureWeaponDialogPatched(app) {
     const weapon = this.weapon;
     if (!weapon) return wrapped?.apply(this, args);
 
+    const currentFields = foundry.utils.deepClone(this.fields ?? {});
+    this.fields = currentFields;
+
+    // If a manual input is mid-edit (no blur/change event yet) pull the value directly
+    // from the rendered inputs so we don't lose the player's in-progress override when
+    // this recomputation runs (for example after toggling a combat option).
+    try {
+      const elementRoot = this.element ?? null;
+      const element = elementRoot ? (elementRoot instanceof jQuery ? elementRoot : $(elementRoot)) : null;
+      if (element?.length) {
+        const manualSnapshot = foundry.utils.deepClone(this._combatOptionsManualOverrides ?? {});
+        const syncManualOverride = (selector, path, accumulator) => {
+          const input = element.find(selector);
+          if (!input?.length) return;
+
+          const rawValue = input[0].type === "number"
+            ? Number(input.val() ?? 0)
+            : input.val();
+
+          foundry.utils.setProperty(currentFields, path, rawValue);
+
+          if (path === "pool" || path === "difficulty" || path === "damage" || path === "wrath") {
+            accumulator[path] = rawValue;
+          } else if (path.startsWith("ed.")) {
+            const ed = foundry.utils.deepClone(accumulator.ed ?? {});
+            ed.value = Number(foundry.utils.getProperty(currentFields, "ed.value") ?? 0);
+            ed.dice  = Number(foundry.utils.getProperty(currentFields, "ed.dice") ?? 0);
+            accumulator.ed = ed;
+          } else if (path.startsWith("ap.")) {
+            const ap = foundry.utils.deepClone(accumulator.ap ?? {});
+            ap.value = Number(foundry.utils.getProperty(currentFields, "ap.value") ?? 0);
+            ap.dice  = Number(foundry.utils.getProperty(currentFields, "ap.dice") ?? 0);
+            accumulator.ap = ap;
+          }
+        };
+
+        syncManualOverride('input[name="pool"]', "pool", manualSnapshot);
+        syncManualOverride('input[name="difficulty"]', "difficulty", manualSnapshot);
+        syncManualOverride('input[name="damage"]', "damage", manualSnapshot);
+        syncManualOverride('input[name="ed.value"]', "ed.value", manualSnapshot);
+        syncManualOverride('input[name="ed.dice"]', "ed.dice", manualSnapshot);
+        syncManualOverride('input[name="ap.value"]', "ap.value", manualSnapshot);
+        syncManualOverride('input[name="ap.dice"]', "ap.dice", manualSnapshot);
+        syncManualOverride('input[name="wrath"]', "wrath", manualSnapshot);
+
+        const hasManualOverrides = Object.keys(manualSnapshot).length > 0;
+        this._combatOptionsManualOverrides = hasManualOverrides
+          ? foundry.utils.deepClone(manualSnapshot)
+          : null;
+      }
+    } catch (err) {
+      logDebug("WeaponDialog.computeFields: failed to pull live manual overrides", err);
+    }
+
+    // Preserve extended combat option state so we can restore it after rebuilding
+    // the system baseline.
+    const preservedExtendedState = {};
+    for (const key of [
+      "cover", "visionPenalty", "sizeModifier",
+      "allOutAttack", "brace", "pinning", "pistolsInMelee", "disarm"
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(currentFields, key)) {
+        preservedExtendedState[key] = currentFields[key];
+      }
+    }
+
+    // --- 1. Normalise core field structures ------------------------------
+    if (!currentFields.ed) currentFields.ed = { value: 0, dice: 0 };
+    if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
+    if (currentFields.ed.dice === undefined) currentFields.ed.dice = 0;
+
+    if (!currentFields.ap) currentFields.ap = { value: 0, dice: 0 };
+    if (currentFields.ap.value === undefined) currentFields.ap.value = 0;
+    if (currentFields.ap.dice === undefined) currentFields.ap.dice = 0;
+
+    if (currentFields.damage === undefined) currentFields.damage = 0;
+
+    // --- 2. Snapshot manual overrides + purely manual fields -------------
+    const manualOverridesRaw = this._combatOptionsManualOverrides
+      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
+      : null;
+    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
+      ? manualOverridesRaw
+      : null;
+
+    // ED “pip” distribution and rollMode are always manual in the core system:
+    const preservedDamageDice = foundry.utils.deepClone(currentFields.damageDice ?? null);
+    const preservedRollMode   = currentFields.rollMode;
+
+    // Keep range / aim / charge / called shot state so the system can
+    // re-apply its own modifiers correctly on the fresh baseline.
+    const preservedOptionState = {
+      distance: currentFields.distance,
+      range:    currentFields.range,
+      aim:      currentFields.aim,
+      charging: currentFields.charging,
+      calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
+    };
+
+    // Build a baseline for the system compute that contains the current dialog state but
+    // resets stacking-prone fields to their initial values.
+    const initialFields = this.initialFields
+      ? foundry.utils.deepClone(this.initialFields)
+      : null;
+    const defaultFields = typeof originalDefaultFields === "function"
+      ? foundry.utils.deepClone(originalDefaultFields.call(this) ?? {})
+      : {};
+
+    const baseInitialPool = Number.isFinite(initialFields?.pool)
+      ? Number(initialFields.pool)
+      : Number(defaultFields?.pool ?? 0);
+    const baseInitialDifficulty = Number.isFinite(initialFields?.difficulty)
+      ? Number(initialFields.difficulty)
+      : Number(defaultFields?.difficulty ?? 0);
+
+    const systemResetFields = foundry.utils.deepClone(currentFields);
+
+    if (!systemResetFields.ed) systemResetFields.ed = { value: 0, dice: 0 };
+    if (!systemResetFields.ap) systemResetFields.ap = { value: 0, dice: 0 };
+
+    systemResetFields.pool = Number.isFinite(baseInitialPool) ? baseInitialPool : 0;
+    systemResetFields.difficulty = Number.isFinite(baseInitialDifficulty) ? baseInitialDifficulty : 0;
+    systemResetFields.damage = 0;
+    systemResetFields.ed.value = 0;
+    systemResetFields.ap.value = 0;
+
+    this.fields = systemResetFields;
+
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
     if (tooltips && typeof tooltips.finish === "function") {
@@ -298,15 +426,6 @@ function ensureWeaponDialogPatched(app) {
       : null;
 
     const fields = this.fields ?? (this.fields = {});
-
-    // Snapshot manual overrides so we can re-apply them after CE adjustments
-    const manualOverridesRaw = this._combatOptionsManualOverrides
-      ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
-      : null;
-    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
-      ? manualOverridesRaw
-      : null;
-
     logDebug("WeaponDialog.computeFields: captured manual overrides", {
       manualOverrides,
       systemBaseline: foundry.utils.deepClone(systemBaseline)
@@ -322,14 +441,21 @@ function ensureWeaponDialogPatched(app) {
       fields.range = systemRange;
     }
 
-    // ED “pip” distribution and rollMode are always manual in the core system:
-    const preservedDamageDice = foundry.utils.deepClone(fields.damageDice ?? null);
-    const preservedRollMode   = fields.rollMode;
-
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
     if (preservedDamageDice) fields.damageDice = preservedDamageDice;
     if (preservedRollMode !== undefined) fields.rollMode = preservedRollMode;
+
+    // Restore extended combat option state captured before rebuilding the baseline so
+    // subsequent calculations respect the user's selections.
+    for (const [key, value] of Object.entries(preservedExtendedState)) {
+      fields[key] = value;
+    }
+
+    // Restore option state (aim, charge, range, called shot) captured before baseline reset
+    for (const [key, value] of Object.entries(preservedOptionState)) {
+      fields[key] = value;
+    }
 
     // --- 4. Size resolution (default vs override) ------------------------
     const defaultSize = getTargetSize(this);
