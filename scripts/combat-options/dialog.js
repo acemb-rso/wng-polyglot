@@ -281,8 +281,11 @@ function ensureWeaponDialogPatched(app) {
     // Preserve manual overrides so they can be reapplied after recomputing the system
     // defaults. This prevents user-entered values from being lost when the dialog
     // recalculates fields in response to combat option changes.
-    const manualOverrides = this._combatOptionsManualOverrides
+    const manualOverridesRaw = this._combatOptionsManualOverrides
       ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
+      : null;
+    const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
+      ? manualOverridesRaw
       : null;
 
     const preservedOptionState = {
@@ -335,6 +338,7 @@ function ensureWeaponDialogPatched(app) {
           return originalComputeFields.apply(this, args);
         };
         computeInitialFieldsFn.call(this);
+        originalComputeFields.call(this);
       } else {
         originalComputeFields.call(this);
       }
@@ -719,21 +723,30 @@ function updateVisibleFields(app, html) {
     const value = el.type === "number" ? Number(el.value ?? 0) : el.value;
     foundry.utils.setProperty(fields, name, value);
 
-    const manualEd = foundry.utils.deepClone(fields.ed ?? { value: 0, dice: 0 });
-    manualEd.value = Number(manualEd.value ?? 0);
-    manualEd.dice = Number(manualEd.dice ?? 0);
-    const manualAp = foundry.utils.deepClone(fields.ap ?? { value: 0, dice: 0 });
-    manualAp.value = Number(manualAp.value ?? 0);
-    manualAp.dice = Number(manualAp.dice ?? 0);
-    const manualSnapshot = {
-      pool: fields.pool,
-      difficulty: fields.difficulty,
-      damage: fields.damage,
-      ed: manualEd,
-      ap: manualAp
-    };
+    const manualSnapshot = foundry.utils.deepClone(app._combatOptionsManualOverrides ?? {});
 
-    app._combatOptionsManualOverrides = foundry.utils.deepClone(manualSnapshot);
+    if (name === "pool") {
+      manualSnapshot.pool = fields.pool;
+    } else if (name === "difficulty") {
+      manualSnapshot.difficulty = fields.difficulty;
+    } else if (name === "damage") {
+      manualSnapshot.damage = fields.damage;
+    } else if (name.startsWith("ed.")) {
+      const manualEd = foundry.utils.deepClone(manualSnapshot.ed ?? {});
+      manualEd.value = Number(fields.ed?.value ?? 0);
+      manualEd.dice = Number(fields.ed?.dice ?? 0);
+      manualSnapshot.ed = manualEd;
+    } else if (name.startsWith("ap.")) {
+      const manualAp = foundry.utils.deepClone(manualSnapshot.ap ?? {});
+      manualAp.value = Number(fields.ap?.value ?? 0);
+      manualAp.dice = Number(fields.ap?.dice ?? 0);
+      manualSnapshot.ap = manualAp;
+    }
+
+    const hasManualOverrides = Object.keys(manualSnapshot).length > 0;
+    app._combatOptionsManualOverrides = hasManualOverrides
+      ? foundry.utils.deepClone(manualSnapshot)
+      : null;
   });
 }
 
