@@ -35,6 +35,16 @@ The GitHub repository also provides a ZIP download if you prefer manual installa
 
 Outside of the dialog the module keeps tabs on combat flow: the primary GM receives prompts for persistent damage, Engaged is applied/cleared automatically as combatants move, and slowed status reminders are whispered when turns begin.
 
+### Debugging manual overrides
+
+If manual values in the weapon dialog appear to be overridden during recalculations, enable the module's debug flag in your browser console to trace the override lifecycle:
+
+```js
+game.modules.get("wng-CombatExtender").flags.debug = true;
+```
+
+With debugging enabled, the console will log the captured manual override snapshots, when they are re-applied after the system rebuilds the dialog fields, and any changes recorded when you adjust the pool, DN, damage, AP, ED, or Wrath inputs. Disable the flag by setting it back to `false` once you're done.
+
 ### Contested tests
 
 The module also exposes a helper for opposed checks. Drag a macro with the following command onto your hotbar to launch the workflow at any time:
