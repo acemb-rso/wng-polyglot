@@ -731,7 +731,7 @@ function ensureWeaponDialogPatched(app) {
    manualOverrides
    });
 
-    if (!ManualOverrides &&
+    if (!this._combatOptionsManualOverrides &&
         !engagedRangedForSafety &&
         !hasAnyCombatOption &&
         typeof systemBaseline.pool === "number") {
