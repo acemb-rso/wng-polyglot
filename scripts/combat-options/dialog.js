@@ -387,10 +387,10 @@ function ensureWeaponDialogPatched(app) {
     );
     fields.sizeModifier = normalizedSizeModifier === "average" ? "" : normalizedSizeModifier;
 
-    // Remove the system’s own size modifier (we’ll re-apply our chosen one later)
-    const baseSizeKey = this._combatOptionsSizeOverride
-      ? normalizeSizeKey(fields.sizeModifier)
-      : normalizeSizeKey(defaultSize || "average");
+    // Always remove the system's built-in size modifier based on the default target size.
+    // We'll re-apply the user's chosen size (if any) below.
+    const baseSizeKey = normalizeSizeKey(defaultSize || "average");
+
     const systemAppliedSizeModifier = SIZE_MODIFIER_OPTIONS[baseSizeKey];
     if (systemAppliedSizeModifier) {
       if (systemAppliedSizeModifier.pool) {
@@ -620,6 +620,9 @@ function ensureWeaponDialogPatched(app) {
       fields.ap.value = Math.max(0, Number(fields.ap?.value ?? 0));
       fields.ap.dice  = Math.max(0, Number(fields.ap?.dice ?? 0));
     }
+    if (!manualOverrides || manualOverrides.wrath === undefined) {
+      fields.wrath = Math.max(0, Number(fields.wrath ?? 0));
+    }
 
     if (manualOverrides) {
       if (manualOverrides.pool !== undefined) {
@@ -640,6 +643,9 @@ function ensureWeaponDialogPatched(app) {
         fields.ap = foundry.utils.deepClone(manualOverrides.ap);
         fields.ap.value = Math.max(0, Number(fields.ap?.value ?? 0));
         fields.ap.dice  = Math.max(0, Number(fields.ap?.dice ?? 0));
+      }
+      if (manualOverrides.wrath !== undefined) {
+        fields.wrath = Math.max(0, Number(manualOverrides.wrath ?? 0));
       }
     }
   };
@@ -686,7 +692,8 @@ function updateVisibleFields(app, html) {
     'input[name="ed.value"]',
     'input[name="ed.dice"]',
     'input[name="ap.value"]',
-    'input[name="ap.dice"]'
+    'input[name="ap.dice"]',
+    'input[name="wrath"]' 
   ];
   
   const poolInput = $html.find('input[name="pool"]');
@@ -723,7 +730,7 @@ function updateVisibleFields(app, html) {
   if (apDiceInput.length && app.fields?.ap?.dice !== undefined) {
     apDiceInput.val(app.fields.ap.dice);
   }
-
+  
   $html.off(".combatOptionsManual");
   $html.on(`change.combatOptionsManual`, manualFieldSelectors.join(","), (ev) => {
     const el = ev.currentTarget;
@@ -751,6 +758,9 @@ function updateVisibleFields(app, html) {
       manualAp.value = Number(fields.ap?.value ?? 0);
       manualAp.dice = Number(fields.ap?.dice ?? 0);
       manualSnapshot.ap = manualAp;
+    }
+    else if (name === "wrath") {
+      manualSnapshot.wrath = Number(fields.wrath ?? 0);
     }
 
     const hasManualOverrides = Object.keys(manualSnapshot).length > 0;
