@@ -343,8 +343,10 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip?.();
     }
 
+    const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
     const fields = this.fields ?? (this.fields = {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
+
 
     // 5. Determine default size and update size modifier field
     const defaultSize = getTargetSize(this);
