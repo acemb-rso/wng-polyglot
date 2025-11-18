@@ -725,16 +725,17 @@ function ensureWeaponDialogPatched(app) {
     return this.fields;
   };
 
-  if (typeof libWrapper !== "undefined" && libWrapper?.register) {
+  const constructorName = prototype?.constructor?.name;
+  if (typeof libWrapper !== "undefined" && libWrapper?.register && constructorName) {
+    const prototypePath = `${constructorName}.prototype.computeFields`;
     libWrapper.register(
       MODULE_ID,
-      prototype,
-      "computeFields",
+      prototypePath,
       computeFieldsWrapper,
       "WRAPPER"
     );
   } else {
-    logError("libWrapper missing; cannot wrap WeaponDialog.computeFields safely");
+    logError("libWrapper missing or constructor name unavailable; cannot wrap WeaponDialog.computeFields safely");
     prototype.computeFields = function (...args) {
       return computeFieldsWrapper.call(this, originalComputeFields, ...args);
     };
