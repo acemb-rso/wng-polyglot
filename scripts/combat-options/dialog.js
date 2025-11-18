@@ -947,6 +947,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         app._combatOptionsCoverOverride = true;
       }
 
+      // Persist the new value immediately so the combat calculations see the updated
+      // selection even if the system recomputes the dialog fields before our handlers
+      // run again (which could otherwise reset the dropdowns to their defaults).
+      foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, value);
+
       // Toggle the visibility of the called shot sub-form so that the dialog only shows
       // the additional inputs when the option is active.
       if (name === "calledShot.enabled") {
