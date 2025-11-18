@@ -17,10 +17,11 @@ import {
   getCoverLabel,
   normalizeCoverKey,
   normalizeSizeKey,
+  measureTokenDistance,
   tokensAreEngaged,
   tokensAreEngagedUsingDistance
 } from "./measurement.js";
-import { syncAllOutAttackCondition, actorHasStatus } from "./turn-effects.js";
+import { syncAllOutAttackCondition } from "./turn-effects.js";
 
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
@@ -395,7 +396,12 @@ function ensureWeaponDialogPatched(app) {
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
       const hasInvalidTargets = targetTokens.some((targetToken) =>
-        !tokensAreEngagedUsingDistance(attackerToken, targetToken, measurement)
+        !tokensAreEngagedUsingDistance(
+          attackerToken,
+          targetToken,
+          measurement,
+          measureTokenDistance(attackerToken, targetToken, measurement)
+        )
       );
 
       if (hasInvalidTargets) {
