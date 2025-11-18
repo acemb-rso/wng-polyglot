@@ -261,6 +261,18 @@ function ensureWeaponDialogPatched(app) {
 
     const currentFields = this.fields ?? (this.fields = {});
 
+    // Preserve extended combat option state so we can restore it after rebuilding
+    // the system baseline.
+    const preservedExtendedState = {};
+    for (const key of [
+      "cover", "visionPenalty", "sizeModifier",
+      "allOutAttack", "brace", "pinning", "pistolsInMelee", "disarm"
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(currentFields, key)) {
+        preservedExtendedState[key] = currentFields[key];
+      }
+    }
+
     // --- 1. Normalise core field structures ------------------------------
     if (!currentFields.ed) currentFields.ed = { value: 0, dice: 0 };
     if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
@@ -351,6 +363,12 @@ function ensureWeaponDialogPatched(app) {
     // Restore purely manual fields (the system never sets these)
     if (preservedDamageDice) fields.damageDice = preservedDamageDice;
     if (preservedRollMode !== undefined) fields.rollMode = preservedRollMode;
+
+    // Restore extended combat option state captured before rebuilding the baseline so
+    // subsequent calculations respect the user's selections.
+    for (const [key, value] of Object.entries(preservedExtendedState)) {
+      fields[key] = value;
+    }
 
     // --- 4. Size resolution (default vs override) ------------------------
     const defaultSize = getTargetSize(this);
