@@ -295,7 +295,7 @@ function applyCombatExtender(dialog) {
   if (fields.damage === undefined) fields.damage = 0;
 
   const { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty } = fields;
-  console.debug("CE fields at start:", { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty });
+  logDebug("CE fields at start:", { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty });
 
   const systemBaseline = foundry.utils.deepClone(fields ?? {});
   const systemDifficulty = Number.isFinite(systemBaseline.difficulty)
@@ -530,7 +530,7 @@ function applyCombatExtender(dialog) {
       const penalty = weapon?.isMelee ? visionPenalty.melee : visionPenalty.ranged;
       if (penalty > 0) difficulty += penalty;
       addTooltip("difficulty", penalty ?? 0, visionPenalty.label);
-      console.debug("CE vision modifier:", { visionKey, penalty, previousDifficulty, nextDifficulty: difficulty });
+      logDebug("CE vision modifier:", { visionKey, penalty, previousDifficulty, nextDifficulty: difficulty });
     }
 
     const sizeKey     = fields.sizeModifier;
@@ -546,7 +546,7 @@ function applyCombatExtender(dialog) {
         difficulty += sizeModifier.difficulty;
         addTooltip("difficulty", sizeModifier.difficulty, sizeModifier.label);
       }
-      console.debug("CE size modifier:", { sizeKey, previousPool, nextPool: pool, previousDifficulty, nextDifficulty: difficulty });
+      logDebug("CE size modifier:", { sizeKey, previousPool, nextPool: pool, previousDifficulty, nextDifficulty: difficulty });
     }
 
     if (fields.disarm) {
@@ -568,7 +568,7 @@ function applyCombatExtender(dialog) {
       if (label) addTooltip("difficulty", coverDelta, label);
     }
 
-    console.debug("CE cover modifier:", { statusCover, selectedCover, coverDelta, nextDifficulty: difficulty });
+    logDebug("CE cover modifier:", { statusCover, selectedCover, coverDelta, nextDifficulty: difficulty });
 
     if (!damageSuppressed) {
       damage   = baseDamage;
@@ -940,7 +940,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
 
-      console.debug("CE change:", name, value);
+      logDebug("CE change:", name, value);
 
       if (!name) {
         logError("Combat option control missing name attribute", { tagName: el.tagName, type: el.type });

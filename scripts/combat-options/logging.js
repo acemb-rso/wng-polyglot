@@ -16,5 +16,5 @@ export const isDebugEnabled = () => {
 
 export const logDebug = (...args) => {
   if (!isDebugEnabled()) return;
-  log("debug", ...args);
+  log("info", ...args);
 };
