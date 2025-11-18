@@ -12,10 +12,12 @@ import {
 import { getEngagedEffect, isActiveScene } from "./engagement.js";
 import { log, logError } from "./logging.js";
 import {
+  getCanvasMeasurementContext,
   getCoverDifficulty,
   getCoverLabel,
   normalizeCoverKey,
-  normalizeSizeKey
+  normalizeSizeKey,
+  tokensAreEngaged
 } from "./measurement.js";
 import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
 
