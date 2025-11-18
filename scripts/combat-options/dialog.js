@@ -20,7 +20,7 @@ import {
   tokensAreEngaged,
   tokensAreEngagedUsingDistance
 } from "./measurement.js";
-import { syncAllOutAttackCondition } from "./turn-effects.js";
+import { syncAllOutAttackCondition, actorHasStatus } from "./turn-effects.js";
 
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
@@ -271,10 +271,6 @@ function ensureWeaponDialogPatched(app) {
 
     // Whatever the system + traits produced is our baseline.
     const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
-    const baselineTargetId = getTargetIdentifier(this);
-    const measuredDistance = Number.isFinite(systemBaseline.distance)
-      ? Number(systemBaseline.distance)
-      : null;
     const systemRange = typeof systemBaseline.range === "string"
       ? systemBaseline.range
       : null;
@@ -283,7 +279,6 @@ function ensureWeaponDialogPatched(app) {
       : null;
 
     const fields = this.fields ?? (this.fields = {});
-    const systemBaseline = foundry.utils.deepClone(fields);
 
     // Snapshot manual overrides so we can re-apply them after CE adjustments
     const manualOverridesRaw = this._combatOptionsManualOverrides
@@ -297,24 +292,6 @@ function ensureWeaponDialogPatched(app) {
       manualOverrides,
       systemBaseline: foundry.utils.deepClone(systemBaseline)
     });
-
-    // Remove the previously-applied CE delta so we always compute from the fresh baseline
-    const lastDelta = this._combatExtenderDelta || null;
-    if (lastDelta) {
-      fields.pool = Number(fields.pool ?? 0) - (lastDelta.pool ?? 0);
-      fields.difficulty = Number(fields.difficulty ?? 0) - (lastDelta.difficulty ?? 0);
-      fields.damage = (fields.damage ?? 0) - (lastDelta.damage ?? 0);
-
-      if (fields.ed) {
-        fields.ed.value = Number(fields.ed.value ?? 0) - (lastDelta.ed?.value ?? 0);
-        fields.ed.dice = Number(fields.ed.dice ?? 0) - (lastDelta.ed?.dice ?? 0);
-      }
-
-      if (fields.ap) {
-        fields.ap.value = Number(fields.ap.value ?? 0) - (lastDelta.ap?.value ?? 0);
-        fields.ap.dice = Number(fields.ap.dice ?? 0) - (lastDelta.ap?.dice ?? 0);
-      }
-    }
 
     // Start from the system's output before layering CE modifiers
     fields.pool       = Number(systemBaseline.pool ?? 0);
@@ -398,18 +375,9 @@ function ensureWeaponDialogPatched(app) {
 
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
-      const hasInvalidTargets = targetTokens.some((targetToken) => {
-        const targetMeasuredDistance = targetToken?.id === baselineTargetId
-          ? measuredDistance
-          : null;
-
-        return !tokensAreEngagedUsingDistance(
-          attackerToken,
-          targetToken,
-          measurement,
-          targetMeasuredDistance
-        );
-      });
+      const hasInvalidTargets = targetTokens.some((targetToken) =>
+        !tokensAreEngagedUsingDistance(attackerToken, targetToken, measurement)
+      );
 
       if (hasInvalidTargets) {
         const currentPool = Math.max(0, fields.pool);
