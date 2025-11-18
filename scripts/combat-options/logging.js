@@ -1,4 +1,4 @@
-import { MODULE_LABEL } from "./constants.js";
+import { MODULE_ID, MODULE_LABEL } from "./constants.js";
 
 export const log = (level, message, ...data) => {
   const logger = console[level] ?? console.log;
@@ -6,3 +6,10 @@ export const log = (level, message, ...data) => {
 };
 
 export const logError = (...args) => log("error", ...args);
+
+export const isDebugEnabled = () => Boolean(game?.modules?.get?.(MODULE_ID)?.flags?.debug);
+
+export const logDebug = (...args) => {
+  if (!isDebugEnabled()) return;
+  log("debug", ...args);
+};
