@@ -723,7 +723,7 @@ function ensureWeaponDialogPatched(app) {
       fields.calledShot?.enabled
     );
 
-    if (!this._combatOptionsManualOverrides &&
+    if (!ManualOverrides &&
         !engagedRangedForSafety &&
         !hasAnyCombatOption &&
         typeof systemBaseline.pool === "number") {
