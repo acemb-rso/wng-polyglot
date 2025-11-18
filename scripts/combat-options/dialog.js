@@ -17,9 +17,10 @@ import {
   getCoverLabel,
   normalizeCoverKey,
   normalizeSizeKey,
-  tokensAreEngaged
+  tokensAreEngaged,
+  tokensAreEngagedUsingDistance
 } from "./measurement.js";
-import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
+import { syncAllOutAttackCondition } from "./turn-effects.js";
 
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
@@ -120,17 +121,6 @@ function getDialogTargetTokens(dialog) {
   }
 
   return results;
-}
-
-function getTargetCover(dialog) {
-  const target = dialog?.data?.targets?.[0];
-  const actor = target?.actor ?? target?.document?.actor;
-  if (!actor) return "";
-
-  if (actorHasStatus(actor, "fullCover")) return "full";
-  if (actorHasStatus(actor, "halfCover")) return "half";
-
-  return "";
 }
 
 Hooks.once("init", async () => {
@@ -363,6 +353,16 @@ function ensureWeaponDialogPatched(app) {
 
     // Whatever the system + traits produced is our baseline.
     const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
+    const baselineTargetId = getTargetIdentifier(this);
+    const measuredDistance = Number.isFinite(systemBaseline.distance)
+      ? Number(systemBaseline.distance)
+      : null;
+    const systemRange = typeof systemBaseline.range === "string"
+      ? systemBaseline.range
+      : null;
+    const systemDifficulty = Number.isFinite(systemBaseline.difficulty)
+      ? Number(systemBaseline.difficulty)
+      : null;
 
     const fields = this.fields ?? (this.fields = {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
@@ -373,6 +373,9 @@ function ensureWeaponDialogPatched(app) {
     fields.damage     = systemBaseline.damage;
     fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
     fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? { value: 0, dice: 0 });
+    if (systemRange && !fields.range) {
+      fields.range = systemRange;
+    }
 
     // Restore purely manual fields (the system never sets these)
     if (preservedDamageDice) fields.damageDice = preservedDamageDice;
@@ -447,9 +450,18 @@ function ensureWeaponDialogPatched(app) {
 
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
-      const hasInvalidTargets = targetTokens.some((targetToken) =>
-        !tokensAreEngaged(attackerToken, targetToken, measurement)
-      );
+      const hasInvalidTargets = targetTokens.some((targetToken) => {
+        const targetMeasuredDistance = targetToken?.id === baselineTargetId
+          ? measuredDistance
+          : null;
+
+        return !tokensAreEngagedUsingDistance(
+          attackerToken,
+          targetToken,
+          measurement,
+          targetMeasuredDistance
+        );
+      });
 
       if (hasInvalidTargets) {
         const currentPool = Math.max(0, fields.pool);
@@ -461,7 +473,10 @@ function ensureWeaponDialogPatched(app) {
         }
 
         const currentDifficulty = Math.max(0, fields.difficulty);
-        const blockedDifficulty = Math.max(currentDifficulty, 999);
+        const baseDifficulty = Number.isFinite(systemDifficulty)
+          ? Math.max(currentDifficulty, systemDifficulty)
+          : currentDifficulty;
+        const blockedDifficulty = Math.max(baseDifficulty, 999);
         fields.difficulty = blockedDifficulty;
         addTooltip("difficulty", blockedDifficulty - currentDifficulty, ENGAGED_TOOLTIP_LABELS.targetNotEngaged);
       }
@@ -602,7 +617,7 @@ function ensureWeaponDialogPatched(app) {
     }
 
     // --- 12. Cover -------------------------------------------------------
-    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? getTargetCover(this));
+    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? "");
     const selectedCover = normalizeCoverKey(fields.cover);
     const coverDelta    = getCoverDifficulty(selectedCover) - getCoverDifficulty(statusCover);
 
@@ -988,7 +1003,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       shouldRecompute = true;
     }
 
-    const defaultCover = getTargetCover(app);
+    const defaultCover = "";
     const normalizedDefaultCover = defaultCover ?? "";
     app._combatOptionsDefaultCover = defaultCover;
     const currentCover = ctx.fields.cover ?? "";
