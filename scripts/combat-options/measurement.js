@@ -117,6 +117,24 @@ export function tokensAreEngaged(tokenA, tokenB, measurement) {
   return dist <= range;
 }
 
+export function tokensAreEngagedUsingDistance(tokenA, tokenB, measurement, measuredDistance) {
+  const range = getTokenEngagementRange(tokenA);
+  const tokenARadius = getTokenRadius(tokenA, measurement);
+  const tokenBRadius = getTokenRadius(tokenB, measurement);
+
+  if (Number.isFinite(range) && Number.isFinite(tokenARadius) && Number.isFinite(tokenBRadius)) {
+    const dist = Number.isFinite(measuredDistance)
+      ? Math.max(0, measuredDistance - tokenARadius - tokenBRadius)
+      : measureTokenEdgeDistance(tokenA, tokenB, measurement);
+
+    if (Number.isFinite(dist)) {
+      return dist <= range;
+    }
+  }
+
+  return tokensAreEngaged(tokenA, tokenB, measurement);
+}
+
 export function getCanvasMeasurementContext() {
   const distance = canvas?.scene?.dimensions?.distance;
   const size = canvas?.scene?.dimensions?.size;

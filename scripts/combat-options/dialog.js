@@ -17,9 +17,10 @@ import {
   getCoverLabel,
   normalizeCoverKey,
   normalizeSizeKey,
-  tokensAreEngaged
+  tokensAreEngaged,
+  tokensAreEngagedUsingDistance
 } from "./measurement.js";
-import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
+import { syncAllOutAttackCondition } from "./turn-effects.js";
 
 const COMBAT_EXTENDER_SCRIPT_ID = `${MODULE_ID}.combat-extender`;
 
@@ -452,7 +453,7 @@ function ensureWeaponDialogPatched(app) {
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
       const hasInvalidTargets = targetTokens.some((targetToken) =>
-        !tokensAreEngaged(attackerToken, targetToken, measurement)
+        !tokensAreEngagedUsingDistance(attackerToken, targetToken, measurement, measuredDistance)
       );
 
       if (hasInvalidTargets) {
@@ -606,7 +607,7 @@ function ensureWeaponDialogPatched(app) {
     }
 
     // --- 12. Cover -------------------------------------------------------
-    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? getTargetCover(this));
+    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? "");
     const selectedCover = normalizeCoverKey(fields.cover);
     const coverDelta    = getCoverDifficulty(selectedCover) - getCoverDifficulty(statusCover);
 
@@ -995,7 +996,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       shouldRecompute = true;
     }
 
-    const defaultCover = getTargetCover(app);
+    const defaultCover = "";
     const normalizedDefaultCover = defaultCover ?? "";
     app._combatOptionsDefaultCover = defaultCover;
     const currentCover = ctx.fields.cover ?? "";
