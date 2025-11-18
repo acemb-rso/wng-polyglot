@@ -930,6 +930,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
 
+      if (!name) {
+        logError("Combat option control missing name attribute", { tagName: el.tagName, type: el.type });
+        return;
+      }
+
       // Dropdowns and checkboxes share the same handler; only the incoming value type
       // differs (booleans for checkboxes, strings for selects). Persist the parsed
       // value so later recomputes see the user's selection regardless of control type.
