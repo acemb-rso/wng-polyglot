@@ -250,7 +250,8 @@ function ensureWeaponDialogPatched(app) {
 
   // Recalculate attack statistics after toggling any combat option. The method mirrors
   // the original implementation provided by the W&G system but layers additional
-  // modifiers on top of the system defaults.
+  // modifiers on top of the system defaults. The system's computeFields is only invoked
+  // once per baseline to avoid stacking bonuses on repeated recalculations.
   prototype.computeFields = function () {
     const currentFields = this.fields ?? (this.fields = {});
     const weapon = this.weapon;
@@ -283,10 +284,6 @@ function ensureWeaponDialogPatched(app) {
       ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
       : null;
 
-    // Reset to a clean baseline **before** calling the system's computeFields so that
-    // weapon stats and other system modifiers are applied exactly once per
-    // recalculation. Otherwise the system would add its bonuses on top of the
-    // previously computed values, causing stacking whenever the dialog recomputes.
     const preservedOptionState = {
       distance: currentFields.distance,
       range: currentFields.range,
@@ -303,62 +300,59 @@ function ensureWeaponDialogPatched(app) {
       calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
     };
 
-    const initialDefaults = originalDefaultFields.call(this) ?? {};
-    const baseFields = this._combatOptionsBaseFields
-      ? foundry.utils.deepClone(this._combatOptionsBaseFields)
-      // Start from the dialog defaults to avoid reusing pre-computed weapon values that
-      // might already include bonuses. This prevents weapon stats (including damage) from
-      // being added multiple times when the dialog performs its first recalculation.
-      : foundry.utils.deepClone(initialDefaults);
+    // Build or reuse the clean system baseline. The baseline is captured once per
+    // lifecycle (or after being explicitly invalidated) so that subsequent
+    // recalculations do not reapply system bonuses repeatedly.
+    const needsFreshBaseline = !this._combatOptionsBaseline;
+    if (needsFreshBaseline) {
+      const defaults = originalDefaultFields.call(this) ?? {};
+      this.fields = foundry.utils.mergeObject(foundry.utils.deepClone(defaults), preservedOptionState, {
+        inplace: false,
+        overwrite: true,
+        insertKeys: true
+      });
 
-    if (!this._combatOptionsBaseFields) {
-      this._combatOptionsBaseFields = foundry.utils.deepClone(baseFields);
+      const tooltips = this.tooltips;
+      let restoreTargetSizeTooltip;
+      if (tooltips && typeof tooltips.finish === "function") {
+        const originalFinish = tooltips.finish;
+        tooltips.finish = function (...args) {
+          if (args?.[1] === "Target Size") return;
+          return originalFinish.apply(this, args);
+        };
+        restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
+      }
+
+      try {
+        originalComputeFields.call(this);
+      } finally {
+        restoreTargetSizeTooltip?.();
+      }
+
+      this._combatOptionsBaseline = foundry.utils.deepClone(this.fields ?? {});
+
+      if (!this._combatOptionsInitialFields) {
+        this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields ?? {});
+      }
+
+      if (!this._combatOptionsDamageBaseline) {
+        this._combatOptionsDamageBaseline = {
+          damage: this.fields?.damage,
+          ed: foundry.utils.deepClone(this.fields?.ed ?? { value: 0, dice: 0 })
+        };
+      }
     }
 
-    this.fields = foundry.utils.mergeObject(baseFields, preservedOptionState, {
+    const baseline = foundry.utils.deepClone(this._combatOptionsBaseline ?? {});
+    this.fields = foundry.utils.mergeObject(baseline, preservedOptionState, {
       inplace: false,
       overwrite: true,
       insertKeys: true
     });
 
     const fields = this.fields ?? (this.fields = {});
-
-    // 2. Temporarily disable target size tooltip for replacement
+    const systemBaseline = foundry.utils.deepClone(this._combatOptionsBaseline ?? fields ?? {});
     const tooltips = this.tooltips;
-    let restoreTargetSizeTooltip;
-    if (tooltips && typeof tooltips.finish === "function") {
-      const originalFinish = tooltips.finish;
-      tooltips.finish = function (...args) {
-        if (args?.[1] === "Target Size") return;
-        return originalFinish.apply(this, args);
-      };
-      restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
-    }
-
-    // 3. Call system computeFields (applies weapon stats, traits like Sniper, etc.)
-    try {
-      originalComputeFields.call(this);
-    } finally {
-      restoreTargetSizeTooltip?.();
-    }
-
-    // 4. CAPTURE THE SYSTEM-COMPUTED BASELINE
-    // This is the "truth" - includes weapon base stats + all trait bonuses
-    // and any other fields (like AP) the system expects to exist.
-    const systemBaseline = foundry.utils.deepClone(fields ?? {});
-
-    // Store for next recalculation
-    if (!this._combatOptionsInitialFields) {
-      this._combatOptionsInitialFields = foundry.utils.deepClone(systemBaseline);
-    }
-
-    if (!this._combatOptionsDamageBaseline) {
-      this._combatOptionsDamageBaseline = {
-        damage: systemBaseline.damage,
-        ed: foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 })
-      };
-    }
-
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
     // 5. Determine default size and update size modifier field
@@ -851,7 +845,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     if (disableAllOutAttack && previousAllOutAttack) {
       app._combatOptionsInitialFields = undefined;
-      app._combatOptionsBaseFields = undefined;
+      app._combatOptionsBaseline = undefined;
       if (typeof app.computeInitialFields === 'function') {
         app.computeInitialFields();
       }
@@ -1002,7 +996,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
       if (traitTriggerFields.includes(name)) {
         app._combatOptionsInitialFields = undefined;
-        app._combatOptionsBaseFields = undefined;
+        app._combatOptionsBaseline = undefined;
         app._combatOptionsDamageBaseline = undefined;
         app._combatOptionsManualOverrides = undefined;
         app._initialFieldsComputed = false;
