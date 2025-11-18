@@ -303,21 +303,20 @@ function ensureWeaponDialogPatched(app) {
     };
 
     // Build or refresh the initial system baseline by re-running the system's
-    // computeInitialFields when necessary. This keeps the baseline aligned with the
-    // actor, weapon, and dialog modifier defaults without preserving stacked values
-    // from prior computations.
-    if (!this._combatOptionsInitialFields) {
-      if (typeof this.computeInitialFields === "function") {
-        this.computeInitialFields();
-      }
-
-      if (!this._combatOptionsInitialFields) {
-        const defaults = originalDefaultFields.call(this) ?? {};
-        this.fields = foundry.utils.deepClone(defaults);
-      }
-
-      this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields ?? {});
+    // computeInitialFields against a pristine copy of the system defaults every time
+    // we recompute. This ensures dialog modifiers, actor status effects, or dynamic
+    // traits that mutate fields during computeInitialFields are captured even after
+    // the first baseline snapshot.
+    if (!this._combatOptionsDefaultFields) {
+      const defaults = originalDefaultFields.call(this) ?? {};
+      this._combatOptionsDefaultFields = foundry.utils.deepClone(defaults);
     }
+
+    this.fields = foundry.utils.deepClone(this._combatOptionsDefaultFields);
+    if (typeof this.computeInitialFields === "function") {
+      this.computeInitialFields();
+    }
+    this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields ?? {});
 
     // Reset fields to a pristine clone of the initial system baseline, then layer the
     // preserved option state so the system recomputation starts from clean values.
@@ -935,14 +934,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     root.off(".combatOptions");
 
     const recomputeDialogFields = () => {
-      if (typeof app.computeInitialFields === 'function') {
-        app.computeInitialFields();
-      } else if (app._combatOptionsInitialFields) {
-        app.fields = foundry.utils.deepClone(app._combatOptionsInitialFields);
-      } else {
-        app.fields = {};
-      }
-
+      app._combatOptionsInitialFields = undefined;
       if (typeof app.computeFields === 'function') {
         app.computeFields();
       }
