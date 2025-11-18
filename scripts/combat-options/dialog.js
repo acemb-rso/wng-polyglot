@@ -835,10 +835,7 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
-// Synchronise the visible form controls with the recalculated values. Foundry does not
-// automatically update input elements when `fields` is mutated, so we patch them
-// manually after each recomputation.
-function updateVisibleFields(app, html) {
+function trackManualOverrideSnapshots(app, html) {
   const $html = html instanceof jQuery ? html : $(html);
 
   const manualFieldSelectors = [
@@ -849,44 +846,9 @@ function updateVisibleFields(app, html) {
     'input[name="ed.dice"]',
     'input[name="ap.value"]',
     'input[name="ap.dice"]',
-    'input[name="wrath"]' 
+    'input[name="wrath"]'
   ];
-  
-  const poolInput = $html.find('input[name="pool"]');
-  if (poolInput.length && app.fields?.pool !== undefined) {
-    poolInput.val(app.fields.pool);
-  }
 
-  const difficultyInput = $html.find('input[name="difficulty"]');
-  if (difficultyInput.length && app.fields?.difficulty !== undefined) {
-    difficultyInput.val(app.fields.difficulty);
-  }
-
-  const damageInput = $html.find('input[name="damage"]');
-  if (damageInput.length && app.fields?.damage !== undefined) {
-    damageInput.val(app.fields.damage);
-  }
-
-  const edValueInput = $html.find('input[name="ed.value"]');
-  if (edValueInput.length && app.fields?.ed?.value !== undefined) {
-    edValueInput.val(app.fields.ed.value);
-  }
-
-  const edDiceInput = $html.find('input[name="ed.dice"]');
-  if (edDiceInput.length && app.fields?.ed?.dice !== undefined) {
-    edDiceInput.val(app.fields.ed.dice);
-  }
-
-  const apValueInput = $html.find('input[name="ap.value"]');
-  if (apValueInput.length && app.fields?.ap?.value !== undefined) {
-    apValueInput.val(app.fields.ap.value);
-  }
-
-  const apDiceInput = $html.find('input[name="ap.dice"]');
-  if (apDiceInput.length && app.fields?.ap?.dice !== undefined) {
-    apDiceInput.val(app.fields.ap.dice);
-  }
-  
   $html.off(".combatOptionsManual");
   $html.on(`change.combatOptionsManual input.combatOptionsManual`, manualFieldSelectors.join(","), (ev) => {
     const el = ev.currentTarget;
@@ -950,16 +912,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     const attackSection = $html.find(".attack");
     if (!attackSection.length) return;
-
-    // Store the initial computed values so we can reset to them. Some combat options
-    // temporarily replace the base damage/ED, so we cache the pristine state to restore
-    // when the option is toggled off.
-    if (!app._initialFieldsComputed) {
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-      app._initialFieldsComputed = true;
-    }
 
     // Pinning is only available for ranged weapons with a Salvo value above one. The
     // check mirrors the logic in the compute step so the UI stays in sync with gameplay
@@ -1051,16 +1003,12 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     if (disableAllOutAttack) {
       foundry.utils.setProperty(ctx.fields, "allOutAttack", false);
       foundry.utils.setProperty(fields, "allOutAttack", false);
+      if (previousAllOutAttack) {
+        shouldRecompute = true;
+      }
     }
 
     ctx.disableAllOutAttack = disableAllOutAttack;
-
-    if (disableAllOutAttack && previousAllOutAttack) {
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-      updateVisibleFields(app, $html);
-    }
 
     const currentTargetId = getTargetIdentifier(app);
     if (app._combatOptionsCoverTargetId !== currentTargetId) {
@@ -1131,15 +1079,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
 
-    const recomputeDialogFields = () => {
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-    };
-
-    if (shouldRecompute) {
-      recomputeDialogFields();
-      updateVisibleFields(app, $html);
+    if (shouldRecompute && typeof app.render === "function") {
+      app.render(true);
     }
 
     // Remember whether the section is expanded so the dialog can restore the state when
@@ -1155,13 +1096,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
-      const fields = app.fields ?? (app.fields = {});
-
-      foundry.utils.setProperty(fields, name, value);
-
       if (name === "allOutAttack" && disableAllOutAttack) {
-        foundry.utils.setProperty(fields, "allOutAttack", false);
         root.find('input[name="allOutAttack"]').prop("checked", false);
+        if (typeof app._onFieldChange === "function") {
+          app._onFieldChange(ev);
+        }
         return;
       }
 
@@ -1185,40 +1124,21 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
-      // Fields that may trigger weapon traits - invalidate baseline
-      const traitTriggerFields = [
-        "aim",
-        "charging",
-        "range",
-        "calledShot.enabled",
-        "calledShot.size"
-      ];
-
-      if (traitTriggerFields.includes(name)) {
-        app._initialFieldsComputed = false;
+      if (typeof app._onFieldChange === "function") {
+        app._onFieldChange(ev);
       }
-
-      // Force a complete recalculation so the system re-applies weapon stats before we
-      // layer our modifiers on top of them.
-      if (typeof app.computeFields === 'function') {
-        app.computeFields();
-      }
-
-      updateVisibleFields(app, $html);
     });
 
     // Keep the combat calculations in sync with the system range selector. The built-in
     // selector isn't part of our data-co controls, so we need to listen for changes
     // separately and force a full recompute so the system's range modifiers are applied.
-    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", () => {
-      app._initialFieldsComputed = false;
-
-      if (typeof app.computeFields === "function") {
-        app.computeFields();
+    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", (ev) => {
+      if (typeof app._onFieldChange === "function") {
+        app._onFieldChange(ev);
       }
-
-      updateVisibleFields(app, $html);
     });
+
+    trackManualOverrideSnapshots(app, $html);
 
   } catch (err) {
     logError("Failed to render combat options", err);
