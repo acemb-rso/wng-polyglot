@@ -723,6 +723,14 @@ function ensureWeaponDialogPatched(app) {
       fields.calledShot?.enabled
     );
 
+    logDebug("WeaponDialog.computeFields: baseline vs final after CE", {
+   baselinePool: systemBaseline.pool,
+   finalPool: fields.pool,
+   hasAnyCombatOption,
+   engagedRangedForSafety,
+   manualOverrides
+   });
+
     if (!ManualOverrides &&
         !engagedRangedForSafety &&
         !hasAnyCombatOption &&
