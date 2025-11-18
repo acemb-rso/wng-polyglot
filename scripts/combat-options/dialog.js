@@ -21,6 +21,8 @@ import {
 } from "./measurement.js";
 import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
 
+const dialogBaselines = new WeakMap();
+
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
 // Determine the default target size based on the first selected target. The method reads
@@ -303,7 +305,8 @@ function ensureWeaponDialogPatched(app) {
     // Build or reuse the clean system baseline. The baseline is captured once per
     // lifecycle (or after being explicitly invalidated) so that subsequent
     // recalculations do not reapply system bonuses repeatedly.
-    const needsFreshBaseline = !this._combatOptionsBaseline;
+    let baseline = dialogBaselines.get(this);
+    const needsFreshBaseline = !baseline;
     if (needsFreshBaseline) {
       const defaults = originalDefaultFields.call(this) ?? {};
       this.fields = foundry.utils.mergeObject(foundry.utils.deepClone(defaults), preservedOptionState, {
@@ -329,10 +332,11 @@ function ensureWeaponDialogPatched(app) {
         restoreTargetSizeTooltip?.();
       }
 
-      this._combatOptionsBaseline = foundry.utils.deepClone(this.fields ?? {});
+      baseline = foundry.utils.deepClone(this.fields ?? {});
+      dialogBaselines.set(this, baseline);
 
       if (!this._combatOptionsInitialFields) {
-        this._combatOptionsInitialFields = foundry.utils.deepClone(this.fields ?? {});
+        this._combatOptionsInitialFields = foundry.utils.deepClone(baseline ?? {});
       }
 
       if (!this._combatOptionsDamageBaseline) {
@@ -343,15 +347,15 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    const baseline = foundry.utils.deepClone(this._combatOptionsBaseline ?? {});
-    this.fields = foundry.utils.mergeObject(baseline, preservedOptionState, {
+    const baselineClone = foundry.utils.deepClone(dialogBaselines.get(this) ?? {});
+    this.fields = foundry.utils.mergeObject(baselineClone, preservedOptionState, {
       inplace: false,
       overwrite: true,
       insertKeys: true
     });
 
     const fields = this.fields ?? (this.fields = {});
-    const systemBaseline = foundry.utils.deepClone(this._combatOptionsBaseline ?? fields ?? {});
+    const systemBaseline = foundry.utils.deepClone(dialogBaselines.get(this) ?? fields ?? {});
     const tooltips = this.tooltips;
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
@@ -845,7 +849,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
 
     if (disableAllOutAttack && previousAllOutAttack) {
       app._combatOptionsInitialFields = undefined;
-      app._combatOptionsBaseline = undefined;
+      dialogBaselines.delete(app);
       if (typeof app.computeInitialFields === 'function') {
         app.computeInitialFields();
       }
@@ -990,15 +994,15 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const traitTriggerFields = [
         "aim",
         "charging",
+        "range",
         "calledShot.enabled",
         "calledShot.size"
       ];
 
       if (traitTriggerFields.includes(name)) {
         app._combatOptionsInitialFields = undefined;
-        app._combatOptionsBaseline = undefined;
+        dialogBaselines.delete(app);
         app._combatOptionsDamageBaseline = undefined;
-        app._combatOptionsManualOverrides = undefined;
         app._initialFieldsComputed = false;
       }
 
