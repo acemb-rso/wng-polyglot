@@ -252,31 +252,47 @@ function ensureWeaponDialogPatched(app) {
   // Recalculate attack statistics after toggling any combat option. The method mirrors
   // the original implementation provided by the W&G system, lets the system compute its
   // own fields first, and then layers additional modifiers on top of those results.
+    // Recalculate attack statistics after toggling any combat option.
+  // Always rebuild from a fresh system baseline, then layer our modifiers
+  // and finally re-apply any manual overrides.
   prototype.computeFields = function () {
-    const fields = this.fields ?? (this.fields = {});
     const weapon = this.weapon;
     if (!weapon) return;
 
-    if (typeof fields.ed === "number") fields.ed = { value: fields.ed, dice: 0 };
-    if (!fields.ed) fields.ed = { value: 0, dice: 0 };
-    if (fields.ed.value === undefined) fields.ed.value = 0;
-    if (fields.ed.dice === undefined) fields.ed.dice = 0;
+    const currentFields = this.fields ?? (this.fields = {});
 
-    if (typeof fields.ap === "number") fields.ap = { value: fields.ap, dice: 0 };
-    if (!fields.ap) fields.ap = { value: 0, dice: 0 };
-    if (fields.ap.value === undefined) fields.ap.value = 0;
-    if (fields.ap.dice === undefined) fields.ap.dice = 0;
+    // --- 1. Normalise core field structures ------------------------------
+    if (!currentFields.ed) currentFields.ed = { value: 0, dice: 0 };
+    if (currentFields.ed.value === undefined) currentFields.ed.value = 0;
+    if (currentFields.ed.dice === undefined) currentFields.ed.dice = 0;
 
-    if (fields.damage === undefined) {
-      fields.damage = 0;
-    }
+    if (!currentFields.ap) currentFields.ap = { value: 0, dice: 0 };
+    if (currentFields.ap.value === undefined) currentFields.ap.value = 0;
+    if (currentFields.ap.dice === undefined) currentFields.ap.dice = 0;
 
+    if (currentFields.damage === undefined) currentFields.damage = 0;
+
+    // --- 2. Snapshot manual overrides + purely manual fields -------------
     const manualOverridesRaw = this._combatOptionsManualOverrides
       ? foundry.utils.deepClone(this._combatOptionsManualOverrides)
       : null;
     const manualOverrides = manualOverridesRaw && Object.keys(manualOverridesRaw).length
       ? manualOverridesRaw
       : null;
+
+    // ED “pip” distribution and rollMode are always manual in the core system:
+    const preservedDamageDice = foundry.utils.deepClone(currentFields.damageDice ?? null);
+    const preservedRollMode   = currentFields.rollMode;
+
+    // Keep range / aim / charge / called shot state so the system can
+    // re-apply its own modifiers correctly on the fresh baseline.
+    const preservedOptionState = {
+      distance: currentFields.distance,
+      range:    currentFields.range,
+      aim:      currentFields.aim,
+      charging: currentFields.charging,
+      calledShot: foundry.utils.deepClone(currentFields.calledShot ?? {})
+    };
 
     const tooltips = this.tooltips;
     let restoreTargetSizeTooltip;
@@ -289,35 +305,54 @@ function ensureWeaponDialogPatched(app) {
       restoreTargetSizeTooltip = () => { tooltips.finish = originalFinish; };
     }
 
+    // --- 3. Build a fresh system baseline --------------------------------
     const previousComputeFields = this.computeFields;
-    const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
-      ? this.computeInitialFields
-      : originalComputeInitialFields;
+
+    const systemDefaults = foundry.utils.deepClone(originalDefaultFields.call(this) ?? {});
+    const seededDefaults = foundry.utils.mergeObject(systemDefaults, preservedOptionState, {
+      inplace:   false,
+      overwrite: true,
+      insertKeys:true
+    });
+    this.fields = seededDefaults;
 
     try {
-      if (typeof computeInitialFieldsFn === "function" && !this._initialFieldsComputed) {
+      const computeInitialFieldsFn = typeof this.computeInitialFields === "function"
+        ? this.computeInitialFields
+        : originalComputeInitialFields;
+
+      if (typeof computeInitialFieldsFn === "function") {
+        // When computeInitialFields calls `this.computeFields()`, we want it to use
+        // the original system implementation, not our patched one.
         this.computeFields = function (...args) {
           return originalComputeFields.apply(this, args);
         };
         computeInitialFieldsFn.call(this);
-        this._initialFieldsComputed = true;
+        originalComputeFields.call(this);
+      } else {
+        originalComputeFields.call(this);
       }
-
-      originalComputeFields.call(this);
     } finally {
       this.computeFields = previousComputeFields;
       restoreTargetSizeTooltip?.();
     }
 
     const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
-    fields.pool = Number(systemBaseline.pool ?? 0);
-    fields.difficulty = Number(systemBaseline.difficulty ?? 0);
-    fields.damage = systemBaseline.damage;
-    fields.ed = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
-    fields.ap = foundry.utils.deepClone(systemBaseline.ap ?? { value: 0, dice: 0 });
-
+    const fields = this.fields ?? (this.fields = {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
 
+    // Start from clean system values
+    fields.pool       = Number(systemBaseline.pool ?? 0);
+    fields.difficulty = Number(systemBaseline.difficulty ?? 0);
+    fields.damage     = systemBaseline.damage;
+    fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? { value: 0, dice: 0 });
+    fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? { value: 0, dice: 0 });
+
+    // Restore purely manual fields (the system never sets these)
+    if (preservedDamageDice) fields.damageDice = preservedDamageDice;
+    if (preservedRollMode !== undefined) fields.rollMode = preservedRollMode;
+
+    // --- 4. Size resolution (default vs override) ------------------------
     const defaultSize = getTargetSize(this);
     this._combatOptionsDefaultSizeModifier = defaultSize;
     const defaultSizeFieldValue = defaultSize === "average" ? "" : defaultSize;
@@ -329,14 +364,32 @@ function ensureWeaponDialogPatched(app) {
       fields.sizeModifier = defaultSizeFieldValue;
     }
 
-    const normalizedSizeModifier = normalizeSizeKey(fields.sizeModifier || defaultSizeFieldValue || defaultSize);
+    const normalizedSizeModifier = normalizeSizeKey(
+      fields.sizeModifier || defaultSizeFieldValue || defaultSize
+    );
     fields.sizeModifier = normalizedSizeModifier === "average" ? "" : normalizedSizeModifier;
 
+    // Remove the system’s own size modifier (we’ll re-apply our chosen one later)
+    const baseSizeKey = this._combatOptionsSizeOverride
+      ? normalizeSizeKey(fields.sizeModifier)
+      : normalizeSizeKey(defaultSize || "average");
+    const systemAppliedSizeModifier = SIZE_MODIFIER_OPTIONS[baseSizeKey];
+    if (systemAppliedSizeModifier) {
+      if (systemAppliedSizeModifier.pool) {
+        fields.pool = Math.max(0, fields.pool - systemAppliedSizeModifier.pool);
+      }
+      if (systemAppliedSizeModifier.difficulty) {
+        fields.difficulty = Math.max(0, fields.difficulty - systemAppliedSizeModifier.difficulty);
+      }
+    }
+
+    // --- 5. Pinning eligibility / resolve target -------------------------
     const salvoValue = Number(weapon?.system?.salvo ?? weapon?.salvo ?? 0);
     const canPinning = Boolean(weapon?.isRanged) && Number.isFinite(salvoValue) && salvoValue > 1;
 
     let pinningResolve = null;
-    if (typeof this._combatOptionsPinningResolve === "number" && Number.isFinite(this._combatOptionsPinningResolve)) {
+    if (typeof this._combatOptionsPinningResolve === "number" &&
+        Number.isFinite(this._combatOptionsPinningResolve)) {
       pinningResolve = Math.max(0, Math.round(this._combatOptionsPinningResolve));
     } else {
       const resolved = getTargetResolve(this);
@@ -350,30 +403,19 @@ function ensureWeaponDialogPatched(app) {
       fields.pinning = false;
     }
 
+    // --- 6. Engagement & ranged restrictions -----------------------------
     const actor = this.actor ?? this.token?.actor ?? null;
     const isEngaged = Boolean(getEngagedEffect(actor));
     const pistolTrait = weapon?.system?.traits;
     const hasPistolTrait = Boolean(pistolTrait?.has?.("pistol") || pistolTrait?.get?.("pistol"));
 
-    const defaultSizeKey = normalizeSizeKey(defaultSize || "average");
-    const systemAppliedSizeModifier = SIZE_MODIFIER_OPTIONS[defaultSizeKey];
-    if (systemAppliedSizeModifier) {
-      if (systemAppliedSizeModifier.pool) {
-        fields.pool = Math.max(0, fields.pool - systemAppliedSizeModifier.pool);
-      }
-      if (systemAppliedSizeModifier.difficulty) {
-        fields.difficulty = Math.max(0, fields.difficulty - systemAppliedSizeModifier.difficulty);
-      }
-    }
-
-    // 9. Apply engagement penalties/restrictions
     const canCheckTargets = typeof canvas !== "undefined" && canvas?.ready;
     const attackerToken = canCheckTargets ? getDialogAttackerToken(this) : null;
-    const targetTokens = canCheckTargets ? getDialogTargetTokens(this) : [];
+    const targetTokens  = canCheckTargets ? getDialogTargetTokens(this) : [];
 
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
-      const hasInvalidTargets = targetTokens.some((targetToken) => 
+      const hasInvalidTargets = targetTokens.some((targetToken) =>
         !tokensAreEngaged(attackerToken, targetToken, measurement)
       );
 
@@ -396,7 +438,6 @@ function ensureWeaponDialogPatched(app) {
     const engagedWithRangedWeapon = Boolean(weapon?.isRanged && isEngaged);
     if (engagedWithRangedWeapon) {
       if (hasPistolTrait) {
-        // Suppress aim bonus
         if (fields.aim) {
           const aimBonus = Math.min(1, Math.max(0, fields.pool));
           if (aimBonus > 0) {
@@ -407,7 +448,6 @@ function ensureWeaponDialogPatched(app) {
           }
         }
 
-        // Suppress short range bonus
         if ((fields.range ?? "") === "short") {
           const shortBonus = Math.min(1, Math.max(0, fields.pool));
           if (shortBonus > 0) {
@@ -418,7 +458,6 @@ function ensureWeaponDialogPatched(app) {
           }
         }
       } else {
-        // Block non-pistol ranged weapons entirely
         const currentPool = Math.max(0, fields.pool);
         if (currentPool > 0) {
           fields.pool = 0;
@@ -434,13 +473,13 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    // 10. Store baseline damage before combat options might suppress it
-    const baseDamage = fields.damage;
+    // --- 7. Base damage snapshot before “no damage” options --------------
+    const baseDamage  = fields.damage;
     const baseEdValue = Number(fields.ed?.value ?? 0);
-    const baseEdDice = Number(fields.ed?.dice ?? 0);
+    const baseEdDice  = Number(fields.ed?.dice ?? 0);
     let damageSuppressed = false;
 
-    // 11. Apply combat options
+    // --- 8. Combat options: all-out, brace, pinning, pistols in melee ----
     if (weapon?.isMelee && fields.allOutAttack) {
       fields.pool += 2;
       addTooltip("pool", 2, COMBAT_OPTION_LABELS.allOutAttack);
@@ -448,8 +487,8 @@ function ensureWeaponDialogPatched(app) {
 
     if (weapon?.isRanged) {
       if (fields.brace) {
-        const heavyTrait = weapon.system?.traits?.get?.("heavy") ?? weapon.system?.traits?.has?.("heavy");
-        const heavyRating = Number(heavyTrait?.rating ?? heavyTrait?.value ?? 0);
+        const heavyTrait   = weapon.system?.traits?.get?.("heavy") ?? weapon.system?.traits?.has?.("heavy");
+        const heavyRating  = Number(heavyTrait?.rating ?? heavyTrait?.value ?? 0);
         const actorStrength = actor?.system?.attributes?.strength?.total ?? 0;
 
         if (heavyTrait && Number.isFinite(heavyRating) && heavyRating > 0 && actorStrength < heavyRating) {
@@ -462,7 +501,7 @@ function ensureWeaponDialogPatched(app) {
 
       if (canPinning && fields.pinning) {
         if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.pinning);
-        
+
         const previousDifficulty = fields.difficulty;
         if (Number.isFinite(pinningResolve)) {
           fields.difficulty = Math.max(0, pinningResolve);
@@ -471,10 +510,10 @@ function ensureWeaponDialogPatched(app) {
         } else {
           addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.pinning);
         }
-        
-        fields.damage = 0;
+
+        fields.damage   = 0;
         fields.ed.value = 0;
-        fields.ed.dice = 0;
+        fields.ed.dice  = 0;
         damageSuppressed = true;
       }
 
@@ -497,8 +536,8 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    // 12. Apply vision penalties
-    const visionKey = fields.visionPenalty;
+    // --- 9. Vision penalties ---------------------------------------------
+    const visionKey     = fields.visionPenalty;
     const visionPenalty = VISION_PENALTIES[visionKey];
     if (visionPenalty) {
       const penalty = weapon?.isMelee ? visionPenalty.melee : visionPenalty.ranged;
@@ -506,8 +545,8 @@ function ensureWeaponDialogPatched(app) {
       addTooltip("difficulty", penalty ?? 0, visionPenalty.label);
     }
 
-    // 13. Re-apply size modifier (user's choice)
-    const sizeKey = fields.sizeModifier;
+    // --- 10. Apply size modifier (user’s choice) -------------------------
+    const sizeKey     = fields.sizeModifier;
     const sizeModifier = SIZE_MODIFIER_OPTIONS[sizeKey];
     if (sizeModifier) {
       if (sizeModifier.pool) {
@@ -520,20 +559,20 @@ function ensureWeaponDialogPatched(app) {
       }
     }
 
-    // 14. Apply disarm option
+    // --- 11. Disarm option (no damage) -----------------------------------
     if (fields.disarm) {
       if (baseDamage) addTooltip("damage", -baseDamage, COMBAT_OPTION_LABELS.calledShotDisarm);
       addTooltip("difficulty", 0, COMBAT_OPTION_LABELS.calledShotDisarm);
-      fields.damage = 0;
+      fields.damage   = 0;
       fields.ed.value = 0;
-      fields.ed.dice = 0;
+      fields.ed.dice  = 0;
       damageSuppressed = true;
     }
 
-    // 15. Apply cover
-    const statusCover = normalizeCoverKey(this._combatOptionsDefaultCover ?? getTargetCover(this));
+    // --- 12. Cover -------------------------------------------------------
+    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? getTargetCover(this));
     const selectedCover = normalizeCoverKey(fields.cover);
-    const coverDelta = getCoverDifficulty(selectedCover) - getCoverDifficulty(statusCover);
+    const coverDelta    = getCoverDifficulty(selectedCover) - getCoverDifficulty(statusCover);
 
     if (coverDelta !== 0) {
       fields.difficulty += coverDelta;
@@ -541,14 +580,14 @@ function ensureWeaponDialogPatched(app) {
       if (label) addTooltip("difficulty", coverDelta, label);
     }
 
-    // 16. Restore damage if not suppressed
+    // --- 13. Restore damage if not suppressed ----------------------------
     if (!damageSuppressed) {
-      fields.damage = baseDamage;
+      fields.damage   = baseDamage;
       fields.ed.value = baseEdValue;
-      fields.ed.dice = baseEdDice;
+      fields.ed.dice  = baseEdDice;
     }
 
-    // 17. Clamp values to valid ranges for any fields that are not manually overridden
+    // --- 14. Clamp, then re-apply manual overrides -----------------------
     if (!manualOverrides || manualOverrides.pool === undefined) {
       fields.pool = Math.max(0, Number(fields.pool ?? 0));
     }
@@ -557,14 +596,13 @@ function ensureWeaponDialogPatched(app) {
     }
     if (!manualOverrides || manualOverrides.ed === undefined) {
       fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
-      fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
+      fields.ed.dice  = Math.max(0, Number(fields.ed?.dice ?? 0));
     }
     if (!manualOverrides || manualOverrides.ap === undefined) {
       fields.ap.value = Math.max(0, Number(fields.ap?.value ?? 0));
-      fields.ap.dice = Math.max(0, Number(fields.ap?.dice ?? 0));
+      fields.ap.dice  = Math.max(0, Number(fields.ap?.dice ?? 0));
     }
 
-    // 18. FINAL STEP: Apply manual overrides (always wins)
     if (manualOverrides) {
       if (manualOverrides.pool !== undefined) {
         fields.pool = Math.max(0, Number(manualOverrides.pool ?? 0));
@@ -578,12 +616,12 @@ function ensureWeaponDialogPatched(app) {
       if (manualOverrides.ed !== undefined) {
         fields.ed = foundry.utils.deepClone(manualOverrides.ed);
         fields.ed.value = Math.max(0, Number(fields.ed?.value ?? 0));
-        fields.ed.dice = Math.max(0, Number(fields.ed?.dice ?? 0));
+        fields.ed.dice  = Math.max(0, Number(fields.ed?.dice ?? 0));
       }
       if (manualOverrides.ap !== undefined) {
         fields.ap = foundry.utils.deepClone(manualOverrides.ap);
         fields.ap.value = Math.max(0, Number(fields.ap?.value ?? 0));
-        fields.ap.dice = Math.max(0, Number(fields.ap?.dice ?? 0));
+        fields.ap.dice  = Math.max(0, Number(fields.ap?.dice ?? 0));
       }
     }
   };
