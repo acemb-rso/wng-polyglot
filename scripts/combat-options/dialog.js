@@ -1011,6 +1011,20 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       updateVisibleFields(app, $html);
     });
 
+    // Keep the combat calculations in sync with the system range selector. The built-in
+    // selector isn't part of our data-co controls, so we need to listen for changes
+    // separately and force a full recompute so the system's range modifiers are applied.
+    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", () => {
+      app._combatOptionsInitialFields = undefined;
+      app._initialFieldsComputed = false;
+
+      if (typeof app.computeFields === "function") {
+        app.computeFields();
+      }
+
+      updateVisibleFields(app, $html);
+    });
+
   } catch (err) {
     logError("Failed to render combat options", err);
     console.error(err);
