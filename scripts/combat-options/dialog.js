@@ -929,6 +929,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
+
+      // Dropdowns and checkboxes share the same handler; only the incoming value type
+      // differs (booleans for checkboxes, strings for selects). Persist the parsed
+      // value so later recomputes see the user's selection regardless of control type.
       if (name === "allOutAttack" && disableAllOutAttack) {
         root.find('input[name="allOutAttack"]').prop("checked", false);
         if (typeof app._onFieldChange === "function") {
