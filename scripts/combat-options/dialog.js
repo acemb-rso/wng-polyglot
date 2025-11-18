@@ -17,9 +17,10 @@ import {
   getCoverLabel,
   normalizeCoverKey,
   normalizeSizeKey,
-  tokensAreEngaged
+  tokensAreEngaged,
+  tokensAreEngagedUsingDistance
 } from "./measurement.js";
-import { actorHasStatus, syncAllOutAttackCondition } from "./turn-effects.js";
+import { syncAllOutAttackCondition } from "./turn-effects.js";
 
 // Determine the default target size based on the first selected target. The method reads
 // the actor's combat size when available and gracefully falls back to token data.
@@ -120,17 +121,6 @@ function getDialogTargetTokens(dialog) {
   }
 
   return results;
-}
-
-function getTargetCover(dialog) {
-  const target = dialog?.data?.targets?.[0];
-  const actor = target?.actor ?? target?.document?.actor;
-  if (!actor) return "";
-
-  if (actorHasStatus(actor, "fullCover")) return "full";
-  if (actorHasStatus(actor, "halfCover")) return "half";
-
-  return "";
 }
 
 Hooks.once("init", async () => {
@@ -363,6 +353,9 @@ function ensureWeaponDialogPatched(app) {
 
     // Whatever the system + traits produced is our baseline.
     const systemBaseline = foundry.utils.deepClone(this.fields ?? {});
+    const measuredDistance = Number.isFinite(systemBaseline.distance)
+      ? Number(systemBaseline.distance)
+      : null;
 
     const fields = this.fields ?? (this.fields = {});
     const addTooltip = (...args) => tooltips?.add?.(...args);
@@ -448,7 +441,7 @@ function ensureWeaponDialogPatched(app) {
     if (isEngaged && attackerToken && targetTokens.length) {
       const measurement = getCanvasMeasurementContext();
       const hasInvalidTargets = targetTokens.some((targetToken) =>
-        !tokensAreEngaged(attackerToken, targetToken, measurement)
+        !tokensAreEngagedUsingDistance(attackerToken, targetToken, measurement, measuredDistance)
       );
 
       if (hasInvalidTargets) {
@@ -602,7 +595,7 @@ function ensureWeaponDialogPatched(app) {
     }
 
     // --- 12. Cover -------------------------------------------------------
-    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? getTargetCover(this));
+    const statusCover   = normalizeCoverKey(this._combatOptionsDefaultCover ?? "");
     const selectedCover = normalizeCoverKey(fields.cover);
     const coverDelta    = getCoverDifficulty(selectedCover) - getCoverDifficulty(statusCover);
 
@@ -988,7 +981,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       shouldRecompute = true;
     }
 
-    const defaultCover = getTargetCover(app);
+    const defaultCover = "";
     const normalizedDefaultCover = defaultCover ?? "";
     app._combatOptionsDefaultCover = defaultCover;
     const currentCover = ctx.fields.cover ?? "";
