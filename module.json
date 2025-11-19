@@ -1,6 +1,5 @@
 {
 	"id": "wng-CombatExtender",
-	"type": "module",
 	"title": "Wrath & Glory - Combat Extender",
 	"description": "Adds melee/ranged combat options to the Wrath & Glory weapon roll dialog.",
         "version": "0.10.6a",
@@ -27,11 +26,6 @@
         ],
         "styles": ["styles/combat-options.css"],
         "languages": [{ "lang": "en", "name": "English", "path": "lang/en.json" }],
-        "templates": [
-                "templates/combat-options.hbs",
-                "templates/partials/co-checkbox.hbs",
-                "templates/partials/co-select.hbs"
-        ],
 	"url": "https://github.com/your-org/wng-combat-extender",
 	"manifest": "https://raw.githubusercontent.com/acemb-rso/wng-CombatExtender/main/module.json",
 	"download": "https://github.com/acemb-rso/wng-CombatExtender/archive/refs/heads/main.zip",
