@@ -179,10 +179,12 @@ function ensureWeaponDialogPatched(app) {
   const originalPrepareContext = prototype._prepareContext;
   const originalDefaultFields  = prototype._defaultFields;
   const originalGetSubmissionData = prototype._getSubmissionData;
+  const originalComputeFields = prototype.computeFields;
 
   if (typeof originalPrepareContext !== "function" ||
       typeof originalDefaultFields  !== "function" ||
-      typeof originalGetSubmissionData !== "function") {
+      typeof originalGetSubmissionData !== "function" ||
+      typeof originalComputeFields !== "function") {
     logError("WeaponDialog prototype missing expected methods");
     return false;
   }
@@ -279,6 +281,18 @@ function ensureWeaponDialogPatched(app) {
     }
 
     return data;
+  };
+
+  prototype.computeFields = async function (...args) {
+    const result = await originalComputeFields.apply(this, args);
+
+    try {
+      await applyCombatExtender(this);
+    } catch (err) {
+      logError("Combat Extender computeFields patch failed", err);
+    }
+
+    return result ?? this.fields;
   };
 
   patchedWeaponDialogPrototypes.add(prototype);
@@ -675,9 +689,6 @@ Hooks.once("ready", () => {
       id: "wng-combat-extender",
       label: "Combat Extender",
       hide: () => false,
-      script(dialog) {
-        applyCombatExtender(dialog);
-      },
       submit(dialog) {
         dialog.flags = dialog.flags ?? {};
         dialog.flags.combatExtender = {
