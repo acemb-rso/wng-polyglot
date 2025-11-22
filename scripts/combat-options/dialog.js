@@ -967,6 +967,14 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     }
 
     const root = attackSection.find("[data-co-root]");
+    if (root.length && typeof app._onFieldChange === "function") {
+      root.find("[name]").each((_, el) => {
+        const $el = $(el);
+        $el.off(".wngCE");
+        $el.on("change.wngCE", (ev) => app._onFieldChange(ev));
+      });
+    }
+
     if (!canPinning) {
       foundry.utils.setProperty(fields, "pinning", false);
     }
