@@ -973,6 +973,12 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       // run again (which could otherwise reset the dropdowns to their defaults).
       foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, value);
 
+      // If the warhammer-lib change handler isn't available, mirror the change into the
+      // user entry cache manually so recalculations keep the user's selection.
+      if (typeof app._onFieldChange !== "function") {
+        foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, value);
+      }
+
       // Toggle the visibility of the called shot sub-form so that the dialog only shows
       // the additional inputs when the option is active.
       if (name === "calledShot.enabled") {
