@@ -2,7 +2,7 @@
 	"id": "wng-CombatExtender",
 	"title": "Wrath & Glory - Combat Extender",
 	"description": "Adds melee/ranged combat options to the Wrath & Glory weapon roll dialog.",
-        "version": "0.10.7",
+        "version": "0.10.8",
 	"authors": [
 		{
 			"name": "acemb-rso",
