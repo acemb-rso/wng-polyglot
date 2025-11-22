@@ -934,10 +934,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     });
 
     // Delegate change events so that dynamically re-rendered controls stay wired without
-    // re-attaching listeners to each element individually. Listen on the whole dialog to
-    // avoid depending on where the data-co-root wrapper is rendered.
-    $html.on("change.combatOptions", "[data-co]", async (ev) => {
-      ev.stopPropagation();
+    // re-attaching listeners to each element individually. Listen on the combat options
+    // wrapper so that newly-rendered controls stay wired without impacting other dialog
+    // listeners.
+    root.on("change.combatOptions", "input[data-co], select[data-co]", async (ev) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
@@ -953,9 +953,15 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       // differs (booleans for checkboxes, strings for selects). Persist the parsed
       // value so later recomputes see the user's selection regardless of control type.
       if (name === "allOutAttack" && disableAllOutAttack) {
-        root.find('input[name="allOutAttack"]').prop("checked", false);
+        const forcedValue = false;
+        root.find('input[name="allOutAttack"]').prop("checked", forcedValue);
+        foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, forcedValue);
+        foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, forcedValue);
         if (typeof app._onFieldChange === "function") {
           app._onFieldChange(ev);
+        }
+        if (typeof app.computeFields === "function") {
+          await app.computeFields();
         }
         return;
       }
@@ -975,11 +981,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       // run again (which could otherwise reset the dropdowns to their defaults).
       foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, value);
 
-      // If the warhammer-lib change handler isn't available, mirror the change into the
-      // user entry cache manually so recalculations keep the user's selection.
-      if (typeof app._onFieldChange !== "function") {
-        foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, value);
-      }
+      // Mirror the change into the user entry cache so recalculations keep the user's
+      // selection even if the W&G dialog rerenders the form before our handler runs.
+      foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, value);
 
       // Toggle the visibility of the called shot sub-form so that the dialog only shows
       // the additional inputs when the option is active.
@@ -994,14 +998,20 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       if (typeof app._onFieldChange === "function") {
         app._onFieldChange(ev);
       }
+      if (typeof app.computeFields === "function") {
+        await app.computeFields();
+      }
     });
 
     // Keep the combat calculations in sync with the system range selector. The built-in
     // selector isn't part of our data-co controls, so we need to listen for changes
     // separately and force a full recompute so the system's range modifiers are applied.
-    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", (ev) => {
+    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", async (ev) => {
       if (typeof app._onFieldChange === "function") {
         app._onFieldChange(ev);
+      }
+      if (typeof app.computeFields === "function") {
+        await app.computeFields();
       }
     });
 
