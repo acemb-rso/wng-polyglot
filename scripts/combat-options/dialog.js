@@ -286,6 +286,10 @@ function ensureWeaponDialogPatched(app) {
   prototype.computeFields = async function (...args) {
     const result = await originalComputeFields.apply(this, args);
 
+    // Preserve the system-computed baseline so we can restore it before applying our
+    // modifiers on subsequent recomputes. This avoids stacking Combat Extender deltas.
+    this._combatExtenderSystemBaseline = foundry.utils.deepClone(this.fields ?? {});
+
     try {
       await applyCombatExtender(this);
     } catch (err) {
@@ -337,6 +341,20 @@ function applyCombatExtender(dialog) {
   if (!weapon) return;
 
   const fields = dialog.fields ?? (dialog.fields = {});
+
+  // Restore the pristine system baseline for computed fields so Combat Extender can apply
+  // modifiers idempotently even when the dialog recomputes multiple times.
+  const systemBaseline = dialog._combatExtenderSystemBaseline;
+  if (systemBaseline) {
+    const safeBaseline = foundry.utils.deepClone(systemBaseline);
+    if (safeBaseline.pool !== undefined) fields.pool = safeBaseline.pool;
+    if (safeBaseline.difficulty !== undefined) fields.difficulty = safeBaseline.difficulty;
+    if (safeBaseline.damage !== undefined) fields.damage = safeBaseline.damage;
+    if (safeBaseline.ed !== undefined) fields.ed = foundry.utils.deepClone(safeBaseline.ed);
+    if (safeBaseline.ap !== undefined) fields.ap = foundry.utils.deepClone(safeBaseline.ap);
+    if (safeBaseline.wrath !== undefined) fields.wrath = safeBaseline.wrath;
+  }
+
   fields.ed = foundry.utils.mergeObject({ value: 0, dice: 0 }, fields.ed ?? {}, { inplace: false });
   fields.ap = foundry.utils.mergeObject({ value: 0, dice: 0 }, fields.ap ?? {}, { inplace: false });
   if (fields.damage === undefined) fields.damage = 0;
@@ -344,9 +362,9 @@ function applyCombatExtender(dialog) {
   const { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty } = fields;
   logDebug("CE fields at start:", { cover, visionPenalty, sizeModifier, pool: initialPool, difficulty: initialDifficulty });
 
-  const systemBaseline = foundry.utils.deepClone(fields ?? {});
-  const systemDifficulty = Number.isFinite(systemBaseline.difficulty)
-    ? Number(systemBaseline.difficulty)
+  const systemBaselineSnapshot = foundry.utils.deepClone(fields ?? {});
+  const systemDifficulty = Number.isFinite(systemBaselineSnapshot.difficulty)
+    ? Number(systemBaselineSnapshot.difficulty)
     : null;
 
   const manualOverridesRaw = dialog._combatOptionsManualOverrides
@@ -624,16 +642,16 @@ function applyCombatExtender(dialog) {
     }
 
     const delta = {
-      pool: pool - Number(systemBaseline.pool ?? 0),
-      difficulty: difficulty - Number(systemBaseline.difficulty ?? 0),
-      damage: damage - (systemBaseline.damage ?? 0),
+      pool: pool - Number(systemBaselineSnapshot.pool ?? 0),
+      difficulty: difficulty - Number(systemBaselineSnapshot.difficulty ?? 0),
+      damage: damage - (systemBaselineSnapshot.damage ?? 0),
       ed: {
-        value: edValue - Number(systemBaseline.ed?.value ?? 0),
-        dice: edDice - Number(systemBaseline.ed?.dice ?? 0)
+        value: edValue - Number(systemBaselineSnapshot.ed?.value ?? 0),
+        dice: edDice - Number(systemBaselineSnapshot.ed?.dice ?? 0)
       },
       ap: {
-        value: apValue - Number(systemBaseline.ap?.value ?? 0),
-        dice: apDice - Number(systemBaseline.ap?.dice ?? 0)
+        value: apValue - Number(systemBaselineSnapshot.ap?.value ?? 0),
+        dice: apDice - Number(systemBaselineSnapshot.ap?.dice ?? 0)
       }
     };
     dialog._combatExtenderDelta = delta;
@@ -682,7 +700,7 @@ function applyCombatExtender(dialog) {
     const hasAnyCombatOption = combatOptionsActive(fields);
 
     logDebug("WeaponDialog.computeFields: baseline vs final after CE", {
-      baselinePool: systemBaseline.pool,
+      baselinePool: systemBaselineSnapshot.pool,
       finalPool: fields.pool,
       hasAnyCombatOption,
       engagedRangedForSafety,
@@ -692,12 +710,12 @@ function applyCombatExtender(dialog) {
     if (!dialog._combatOptionsManualOverrides &&
         !engagedRangedForSafety &&
         !hasAnyCombatOption &&
-        typeof systemBaseline.pool === "number") {
-      fields.pool       = Number(systemBaseline.pool);
-      fields.difficulty = Number(systemBaseline.difficulty ?? fields.difficulty);
-      fields.damage     = systemBaseline.damage;
-      fields.ed         = foundry.utils.deepClone(systemBaseline.ed ?? fields.ed);
-      fields.ap         = foundry.utils.deepClone(systemBaseline.ap ?? fields.ap);
+        typeof systemBaselineSnapshot.pool === "number") {
+      fields.pool       = Number(systemBaselineSnapshot.pool);
+      fields.difficulty = Number(systemBaselineSnapshot.difficulty ?? fields.difficulty);
+      fields.damage     = systemBaselineSnapshot.damage;
+      fields.ed         = foundry.utils.deepClone(systemBaselineSnapshot.ed ?? fields.ed);
+      fields.ap         = foundry.utils.deepClone(systemBaselineSnapshot.ap ?? fields.ap);
     }
 
     return dialog.fields;
