@@ -309,6 +309,29 @@ async function recomputeDialog(app) {
   }
 }
 
+function syncDialogInputsFromFields(app, html) {
+  const fields = app?.fields ?? {};
+  const $html = html instanceof jQuery ? html : $(html);
+
+  $html.find("input[name], select[name]").each((_, el) => {
+    const name = el.name;
+    if (!name) return;
+
+    const value = foundry.utils.getProperty(fields, name);
+    if (value === undefined) return;
+
+    if (el.type === "checkbox") {
+      el.checked = Boolean(value);
+      return;
+    }
+
+    const stringValue = value == null ? "" : String(value);
+    if (el.value !== stringValue) {
+      el.value = stringValue;
+    }
+  });
+}
+
 function applyCombatExtender(dialog) {
   const weapon = dialog.weapon;
   if (!weapon) return;
@@ -1022,6 +1045,8 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     });
 
     trackManualOverrideSnapshots(app, $html);
+
+    syncDialogInputsFromFields(app, $html);
 
   } catch (err) {
     logError("Failed to render combat options", err);
