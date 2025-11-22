@@ -238,6 +238,19 @@ function ensureWeaponDialogPatched(app) {
   // Supply neutral defaults for the extended fields. This prevents stale values from
   // lingering between dialog uses when Foundry reuses the same instance.
   prototype._defaultFields = function () {
+    // Reset any cached Combat Extender state so reused dialog instances do not carry
+    // modifiers, manual overrides, or targeting metadata across renders. This keeps the
+    // UI and calculated values in sync each time the dialog opens.
+    this._combatExtenderSystemBaseline = null;
+    this._combatExtenderDelta = null;
+    this._combatOptionsManualOverrides = null;
+    this._combatOptionsCoverOverride = false;
+    this._combatOptionsCoverTargetId = null;
+    this._combatOptionsDefaultCover = null;
+    this._combatOptionsDefaultSizeModifier = null;
+    this._combatOptionsPinningResolve = null;
+    this._combatOptionsSizeOverride = false;
+
     const defaults = originalDefaultFields.call(this) ?? {};
     return foundry.utils.mergeObject(defaults, {
       ed: { value: 0, dice: 0 },
