@@ -921,6 +921,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // Remove any lingering listeners before wiring new ones to avoid duplicate handlers
     // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
+    $html.off("change.combatOptions");
 
     if (shouldRecompute && typeof app.render === "function") {
       app.render(true);
@@ -933,8 +934,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     });
 
     // Delegate change events so that dynamically re-rendered controls stay wired without
-    // re-attaching listeners to each element individually.
-    root.on("change.combatOptions", "[data-co]", async (ev) => {
+    // re-attaching listeners to each element individually. Listen on the whole dialog to
+    // avoid depending on where the data-co-root wrapper is rendered.
+    $html.on("change.combatOptions", "[data-co]", async (ev) => {
       ev.stopPropagation();
       const el = ev.currentTarget;
       const name = el.name;
