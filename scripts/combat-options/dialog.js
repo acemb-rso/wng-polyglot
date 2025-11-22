@@ -179,10 +179,12 @@ function ensureWeaponDialogPatched(app) {
   const originalPrepareContext = prototype._prepareContext;
   const originalDefaultFields  = prototype._defaultFields;
   const originalGetSubmissionData = prototype._getSubmissionData;
+  const originalComputeFields = prototype.computeFields;
 
   if (typeof originalPrepareContext !== "function" ||
       typeof originalDefaultFields  !== "function" ||
-      typeof originalGetSubmissionData !== "function") {
+      typeof originalGetSubmissionData !== "function" ||
+      typeof originalComputeFields !== "function") {
     logError("WeaponDialog prototype missing expected methods");
     return false;
   }
@@ -281,8 +283,30 @@ function ensureWeaponDialogPatched(app) {
     return data;
   };
 
+  prototype.computeFields = async function (...args) {
+    const result = await originalComputeFields.apply(this, args);
+
+    try {
+      await applyCombatExtender(this);
+    } catch (err) {
+      logError("Combat Extender computeFields patch failed", err);
+    }
+
+    return result ?? this.fields;
+  };
+
   patchedWeaponDialogPrototypes.add(prototype);
   return true;
+}
+
+async function recomputeDialog(app) {
+  if (typeof app?.computeFields === "function") {
+    await app.computeFields();
+  }
+
+  if (typeof app?.updateVisibleFields === "function") {
+    await app.updateVisibleFields();
+  }
 }
 
 function applyCombatExtender(dialog) {
@@ -665,9 +689,6 @@ Hooks.once("ready", () => {
       id: "wng-combat-extender",
       label: "Combat Extender",
       hide: () => false,
-      script(dialog) {
-        applyCombatExtender(dialog);
-      },
       submit(dialog) {
         dialog.flags = dialog.flags ?? {};
         dialog.flags.combatExtender = {
@@ -957,12 +978,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         root.find('input[name="allOutAttack"]').prop("checked", forcedValue);
         foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, forcedValue);
         foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, forcedValue);
-        if (typeof app._onFieldChange === "function") {
-          app._onFieldChange(ev);
-        }
-        if (typeof app.computeFields === "function") {
-          await app.computeFields();
-        }
+        await recomputeDialog(app);
         return;
       }
 
@@ -995,24 +1011,14 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
-      if (typeof app._onFieldChange === "function") {
-        app._onFieldChange(ev);
-      }
-      if (typeof app.computeFields === "function") {
-        await app.computeFields();
-      }
+      await recomputeDialog(app);
     });
 
     // Keep the combat calculations in sync with the system range selector. The built-in
     // selector isn't part of our data-co controls, so we need to listen for changes
     // separately and force a full recompute so the system's range modifiers are applied.
     $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", async (ev) => {
-      if (typeof app._onFieldChange === "function") {
-        app._onFieldChange(ev);
-      }
-      if (typeof app.computeFields === "function") {
-        await app.computeFields();
-      }
+      await recomputeDialog(app);
     });
 
     trackManualOverrideSnapshots(app, $html);
