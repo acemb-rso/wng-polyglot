@@ -952,7 +952,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       // differs (booleans for checkboxes, strings for selects). Persist the parsed
       // value so later recomputes see the user's selection regardless of control type.
       if (name === "allOutAttack" && disableAllOutAttack) {
-        root.find('input[name="allOutAttack"]').prop("checked", false);
+        const forcedValue = false;
+        root.find('input[name="allOutAttack"]').prop("checked", forcedValue);
+        foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, forcedValue);
+        foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, forcedValue);
         if (typeof app._onFieldChange === "function") {
           app._onFieldChange(ev);
         }
