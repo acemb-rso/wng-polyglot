@@ -1041,7 +1041,17 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
-      // Allow the system's _onFieldChange listener to handle recomputation.
+      // Explicitly ask the system dialog to recompute when any Combat Extender
+      // control changes. Relying on the native change handler to pick up our
+      // injected inputs is brittle because the original listeners may be
+      // attached directly to the system-provided form fields that we replace
+      // above. When that happens the dropdowns appear but do nothing because
+      // no recomputation is triggered. Calling the handler directly ensures the
+      // updated values flow into the dialog's field calculations even if the
+      // base listeners miss the event.
+      if (typeof app._onFieldChange === "function") {
+        await app._onFieldChange(ev);
+      }
     });
 
     trackManualOverrideSnapshots(app, $html);
