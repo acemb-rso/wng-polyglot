@@ -787,24 +787,24 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         disarmNote: COMBAT_OPTION_LABELS.disarmNote
       },
       coverOptions: [
-        { value: "",     label: "No Cover" },
-        { value: "half", label: "Half Cover (+1 DN)" },
-        { value: "full", label: "Full Cover (+2 DN)" }
+        { name: "cover", value: "",     label: "No Cover" },
+        { name: "cover", value: "half", label: "Half Cover (+1 DN)" },
+        { name: "cover", value: "full", label: "Full Cover (+2 DN)" }
       ],
       visionOptions: [
-        { value: "",        label: "Normal" },
-        { value: "twilight",label: "Twilight (+1 DN Ranged)" },
-        { value: "dim",     label: "Dim Light (+2 DN Ranged / +1 DN Melee)" },
-        { value: "heavy",   label: "Heavy Fog (+3 DN Ranged / +2 DN Melee)" },
-        { value: "darkness",label: "Darkness (+4 DN Ranged / +3 DN Melee)" }
+        { name: "visionPenalty", value: "",        label: "Normal" },
+        { name: "visionPenalty", value: "twilight",label: "Twilight (+1 DN Ranged)" },
+        { name: "visionPenalty", value: "dim",     label: "Dim Light (+2 DN Ranged / +1 DN Melee)" },
+        { name: "visionPenalty", value: "heavy",   label: "Heavy Fog (+3 DN Ranged / +2 DN Melee)" },
+        { name: "visionPenalty", value: "darkness",label: "Darkness (+4 DN Ranged / +3 DN Melee)" }
       ],
       sizeOptions: [
-        { value: "",           label: "Average Target (No modifier)" },
-        { value: "tiny",       label: "Tiny Target (+2 DN)" },
-        { value: "small",      label: "Small Target (+1 DN)" },
-        { value: "large",      label: "Large Target (+1 Die)" },
-        { value: "huge",       label: "Huge Target (+2 Dice)" },
-        { value: "gargantuan", label: "Gargantuan Target (+3 Dice)" }
+        { name: "sizeModifier", value: "",           label: "Average Target (No modifier)" },
+        { name: "sizeModifier", value: "tiny",       label: "Tiny Target (+2 DN)" },
+        { name: "sizeModifier", value: "small",      label: "Small Target (+1 DN)" },
+        { name: "sizeModifier", value: "large",      label: "Large Target (+1 Die)" },
+        { name: "sizeModifier", value: "huge",       label: "Huge Target (+2 Dice)" },
+        { name: "sizeModifier", value: "gargantuan", label: "Gargantuan Target (+3 Dice)" }
       ],
       calledShotSizes: [
         { value: "",       label: "" },
@@ -921,6 +921,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     // Remove any lingering listeners before wiring new ones to avoid duplicate handlers
     // when the dialog re-renders the combat options section.
     root.off(".combatOptions");
+    $html.off("change.combatOptions");
 
     if (shouldRecompute && typeof app.render === "function") {
       app.render(true);
@@ -933,8 +934,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     });
 
     // Delegate change events so that dynamically re-rendered controls stay wired without
-    // re-attaching listeners to each element individually.
-    root.on("change.combatOptions", "[data-co]", async (ev) => {
+    // re-attaching listeners to each element individually. Listen on the whole dialog to
+    // avoid depending on where the data-co-root wrapper is rendered.
+    $html.on("change.combatOptions", "[data-co]", async (ev) => {
       ev.stopPropagation();
       const el = ev.currentTarget;
       const name = el.name;
@@ -972,6 +974,12 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       // selection even if the system recomputes the dialog fields before our handlers
       // run again (which could otherwise reset the dropdowns to their defaults).
       foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, value);
+
+      // If the warhammer-lib change handler isn't available, mirror the change into the
+      // user entry cache manually so recalculations keep the user's selection.
+      if (typeof app._onFieldChange !== "function") {
+        foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, value);
+      }
 
       // Toggle the visibility of the called shot sub-form so that the dialog only shows
       // the additional inputs when the option is active.
