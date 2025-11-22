@@ -960,6 +960,9 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         if (typeof app._onFieldChange === "function") {
           app._onFieldChange(ev);
         }
+        if (typeof app.computeFields === "function") {
+          await app.computeFields();
+        }
         return;
       }
 
@@ -995,14 +998,20 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
       if (typeof app._onFieldChange === "function") {
         app._onFieldChange(ev);
       }
+      if (typeof app.computeFields === "function") {
+        await app.computeFields();
+      }
     });
 
     // Keep the combat calculations in sync with the system range selector. The built-in
     // selector isn't part of our data-co controls, so we need to listen for changes
     // separately and force a full recompute so the system's range modifiers are applied.
-    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", (ev) => {
+    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", async (ev) => {
       if (typeof app._onFieldChange === "function") {
         app._onFieldChange(ev);
+      }
+      if (typeof app.computeFields === "function") {
+        await app.computeFields();
       }
     });
 
