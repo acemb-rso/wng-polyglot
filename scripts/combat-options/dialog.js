@@ -303,16 +303,6 @@ function ensureWeaponDialogPatched(app) {
   return true;
 }
 
-async function recomputeDialog(app) {
-  if (typeof app?.computeFields === "function") {
-    await app.computeFields();
-  }
-
-  if (typeof app?.updateVisibleFields === "function") {
-    await app.updateVisibleFields();
-  }
-}
-
 function syncDialogInputsFromFields(app, html) {
   const fields = app?.fields ?? {};
   const $html = html instanceof jQuery ? html : $(html);
@@ -1019,7 +1009,6 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         root.find('input[name="allOutAttack"]').prop("checked", forcedValue);
         foundry.utils.setProperty(app.fields ?? (app.fields = {}), name, forcedValue);
         foundry.utils.setProperty(app.userEntry ?? (app.userEntry = {}), name, forcedValue);
-        await recomputeDialog(app);
         return;
       }
 
@@ -1052,14 +1041,7 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
         await syncAllOutAttackCondition(actor, Boolean(value));
       }
 
-      await recomputeDialog(app);
-    });
-
-    // Keep the combat calculations in sync with the system range selector. The built-in
-    // selector isn't part of our data-co controls, so we need to listen for changes
-    // separately and force a full recompute so the system's range modifiers are applied.
-    $html.find('select[name="range"]').off(".combatOptionsRange").on("change.combatOptionsRange", async (ev) => {
-      await recomputeDialog(app);
+      // Allow the system's _onFieldChange listener to handle recomputation.
     });
 
     trackManualOverrideSnapshots(app, $html);
