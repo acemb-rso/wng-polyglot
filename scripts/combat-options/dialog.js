@@ -934,9 +934,10 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     });
 
     // Delegate change events so that dynamically re-rendered controls stay wired without
-    // re-attaching listeners to each element individually. Listen on the whole dialog to
-    // avoid depending on where the data-co-root wrapper is rendered.
-    $html.on("change.combatOptions", "[data-co]", async (ev) => {
+    // re-attaching listeners to each element individually. Listen on the combat options
+    // wrapper so that newly-rendered controls stay wired without impacting other dialog
+    // listeners.
+    root.on("change.combatOptions", "input[data-co], select[data-co]", async (ev) => {
       const el = ev.currentTarget;
       const name = el.name;
       const value = el.type === "checkbox" ? el.checked : el.value;
