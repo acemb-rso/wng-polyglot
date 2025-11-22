@@ -1,18 +1,18 @@
 # Combat options refactor notes
 
-This file summarizes the current API surface inside `scripts/combat-options.js` and proposes a safe split into smaller modules.
+This file documents the current "standard" layout for the combat options code so future work can stay aligned with the refactor that already landed.
 
-## Current responsibilities
-- **Dialog extension**: Overrides `_prepareContext`, `_defaultFields`, and `computeFields` on the attack dialog prototype to add combat option fields and modifiers.
-- **UI wiring**: Renders the `combat-options.hbs` fragment into the attack dialog, manages change handlers, and keeps values in sync when Foundry recomputes fields.
-- **Engagement and condition tracking**: Registers the custom `engaged` condition, listens to token/actor hooks, and recalculates engagement/cover data on canvas or ownership changes.
-- **Measurement/helpers**: Normalizes size/cover values, calculates engagement ranges, extracts token radii, and formats tooltips or status labels.
+## Responsibilities by module
+- **`combat-options.js` (entry point)**: Wires Foundry lifecycle hooks one time, then forwards to the more focused modules. No business logic should live here beyond orchestration.
+- **`dialog.js`**: Overrides `_prepareContext`, `_defaultFields`, and `computeFields` on the attack dialog prototype to add combat option fields and modifiers. Owns tooltip helpers and dialog-specific calculations.
+- **`engagement.js`**: Registers the custom `engaged` condition, listens to token/actor hooks, and recalculates engagement/cover data on canvas or ownership changes. Debounced updates live here, not in the entry point.
+- **`measurement.js`**: Normalizes size/cover values, calculates engagement ranges, extracts token radii, and formats tooltips or status labels. Keep this side-effect free so it can be safely imported by other modules.
+- **`permissions.js`**: Centralizes GM/ownership checks and any logic that gates whether a client should react to a hook.
+- **`turn-effects.js`**: Handles turn-start/turn-end automation such as persistent damage prompts and slowed-condition reminders.
+- **`settings.js`**: Defines configuration flags and defaults, keeping user-facing options away from the dialog logic.
+- **`logging.js`**: Thin wrapper for debugging output, used when contributors need to trace overrides or hook flow without adding ad hoc `console.log` calls.
 
-## Suggested module boundaries
-- **`dialog-extension.js`**: Patch the attack dialog prototype (context, default fields, compute hooks) plus tooltip helpers. Accept a small facade of helper functions (size/cover lookups, vision data) injected via imports to keep it pure.
-- **`ui-renderer.js`**: Handle `renderDialog`/`renderAttack` hooks, template rendering, and change listeners. Expose a function like `mountCombatOptions(app, html)` so the entry point can call it after dialog renders.
-- **`engagement-service.js`**: Track engagement/cover/size state across tokens. Owns hook registrations, debounce logic, and helpers such as `requestEngagedEvaluation`, `handleTokenChange`, and `handleActorUpdate`.
-- **`combat-math.js`**: Shared utilities for size normalization, cover modifiers, vision penalties, and persistent-damage evaluation. These are already side-effect free and can be imported by both dialog and engagement modules.
-
-## Minimal entry point
-Create a slim `combat-options.js` entry that imports the modules above, registers hooks once, and forwards Foundry events to the appropriate module functions. The existing API surface (Foundry hooks, dialog prototype methods, and template rendering) is already self-contained, so extracting code into modules should not require new engine APIs—just shared exports and a predictable initialization order.
+## Maintenance guidance
+- Avoid reintroducing monolithic helpers; instead, extend the module whose responsibility matches the change. If a feature spans modules, add a small shared helper to `measurement.js` rather than duplicating calculations.
+- Keep hook wiring centralized in `combat-options.js` so the rest of the code remains tree-shakeable and testable in isolation.
+- New templates or UI fragments should be mounted through `dialog.js` to ensure re-renders stay consistent with Foundry’s lifecycle events.

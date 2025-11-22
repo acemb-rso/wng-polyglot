@@ -54,6 +54,16 @@ game.wngCombatExtender?.contestedRoll();
 
 Running the macro presents a dialog where you can pick two actors, select the relevant skills or attributes for each side, and hand out bonus dice for situational modifiers (anything that would normally increase DN). Wrath dice are optional—leave them at zero unless you want the chance of complications. Both tests are resolved simultaneously using Wrath & Glory dice, ties automatically go to the initiating character, and the chat log summarizes icons, shifts, and any Wrath criticals or complications. Actor sheets gain a **Contested Roll** button in their header for quicker access.
 
+## Standard module layout
+
+The codebase now follows a stable module layout so future updates stay predictable and safe:
+
+- `scripts/combat-options.js` is the entry point that registers Foundry hooks once during initialization.
+- The `scripts/combat-options/` directory contains focused modules for dialog rendering, engagement tracking, measurements, permissions, logging, settings, and turn-based effects. Each file owns a single responsibility to keep cross-feature coupling low.
+- `scripts/contested-roll.js` implements the contested-test helper and is intentionally isolated so it can evolve separately from the combat option pipeline.
+
+When you contribute, prefer adding new helpers to the most relevant module rather than expanding the entry point. This standard keeps downstream behavior well-tested and makes it easier to reason about patches.
+
 ## Localization
 
 English strings are bundled with the module. You can add additional translations by mirroring `lang/en.json` and registering the language in `module.json`. Contributions are welcome!
