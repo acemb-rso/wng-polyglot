@@ -261,18 +261,20 @@ function ensureWeaponDialogPatched(app) {
   // Guard against undefined targets when submitting the dialog. The system dialog
   // expects every target entry to contain an actor, but Foundry can leave
   // placeholder tokens in the list (for example when targets are cleared before
-  // submission). Filter out those entries to prevent `speakerData` access errors
-  // thrown by the upstream implementation.
+  // submission). Try to rehydrate those placeholders instead of discarding them so
+  // damage application still works when targets are cleared between the attack and
+  // damage roll. Filter out entries we still cannot recover to prevent
+  // `speakerData` access errors thrown by the upstream implementation.
   prototype._getSubmissionData = function () {
     const data = originalGetSubmissionData.call(this);
 
     if (Array.isArray(data?.targets)) {
       data.targets = data.targets
         .map((target) => {
-          const actor = target?.actor ?? target?.document?.actor ?? null;
+          const actor = resolveTargetActor(target);
           if (!actor) return null;
 
-          const token = target?.document ?? target?.token ?? null;
+          const token = resolveTargetToken(target, actor);
           return typeof actor.speakerData === "function"
             ? actor.speakerData(token)
             : null;
@@ -301,6 +303,41 @@ function ensureWeaponDialogPatched(app) {
 
   patchedWeaponDialogPrototypes.add(prototype);
   return true;
+}
+
+function resolveTargetActor(target) {
+  if (!target) return null;
+
+  const targetActor = target.actor ?? target.document?.actor;
+  if (targetActor) return targetActor;
+
+  const actorId = target.actorId ?? target.actor?.id;
+  if (actorId) {
+    const actor = game.actors?.get?.(actorId);
+    if (actor) return actor;
+  }
+
+  return resolveTargetToken(target)?.actor ?? null;
+}
+
+function resolveTargetToken(target, actor) {
+  if (!target) return null;
+
+  const token = target.document ?? target.token;
+  if (token) return token;
+
+  const tokenId = target.documentId ?? target.tokenId ?? target.id;
+  const sceneId = target.sceneId ?? target.scene?.id ?? target.document?.parent?.id;
+  if (tokenId && sceneId) {
+    const scene = game.scenes?.get?.(sceneId);
+    const foundToken = scene?.tokens?.get?.(tokenId);
+    if (foundToken) return foundToken;
+  }
+
+  const actorToken = actor?.getActiveTokens?.()?.at?.(0);
+  if (actorToken) return actorToken.document ?? actorToken;
+
+  return null;
 }
 
 function syncDialogInputsFromFields(app, html) {
