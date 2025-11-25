@@ -1006,6 +1006,11 @@ Hooks.on("renderWeaponDialog", async (app, html) => {
     const root = attackSection.find("[data-co-root]");
     if (root.length && typeof app._onFieldChange === "function") {
       root.find("[name]").each((_, el) => {
+        // Combat Extender controls (marked with data-co) are already wired through the
+        // delegated handler below. Avoid attaching another listener to those inputs so
+        // a single change does not trigger multiple renders of the dialog.
+        if (el.dataset?.co) return;
+
         const $el = $(el);
         $el.off(".wngCE");
         $el.on("change.wngCE", (ev) => app._onFieldChange(ev));
