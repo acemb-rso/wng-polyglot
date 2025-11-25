@@ -176,18 +176,18 @@ function ensureWeaponDialogPatched(app) {
   if (!prototype || prototype === Application.prototype) return false;
   if (patchedWeaponDialogPrototypes.has(prototype)) return false;
 
-  const originalPrepareContext = prototype._prepareContext;
-  const originalDefaultFields  = prototype._defaultFields;
-  const originalGetSubmissionData = prototype._getSubmissionData;
-  const originalComputeFields = prototype.computeFields;
+    const originalPrepareContext = prototype._prepareContext;
+    const originalDefaultFields  = prototype._defaultFields;
+    const originalComputeFields = prototype.computeFields;
+    const originalGetSubmissionData = prototype._getSubmissionData;
 
-  if (typeof originalPrepareContext !== "function" ||
-      typeof originalDefaultFields  !== "function" ||
-      typeof originalGetSubmissionData !== "function" ||
-      typeof originalComputeFields !== "function") {
-    logError("WeaponDialog prototype missing expected methods");
-    return false;
-  }
+    if (typeof originalPrepareContext !== "function" ||
+        typeof originalDefaultFields  !== "function" ||
+        typeof originalGetSubmissionData !== "function" ||
+        typeof originalComputeFields !== "function") {
+      logError("WeaponDialog prototype missing expected methods");
+      return false;
+    }
 
   // Inject our computed options into the rendering context. The returned object is passed
   // directly to the Handlebars template when the dialog renders.
@@ -266,23 +266,38 @@ function ensureWeaponDialogPatched(app) {
   // damage roll. Filter out entries we still cannot recover to prevent
   // `speakerData` access errors thrown by the upstream implementation.
   prototype._getSubmissionData = function () {
-    const data = originalGetSubmissionData.call(this);
+    const submitData = foundry.utils.mergeObject(this.data ?? {}, this.fields ?? {});
+    submitData.context = this.context;
 
-    if (Array.isArray(data?.targets)) {
-      data.targets = data.targets
+    if (!this.context?.skipTargets) {
+      const rawTargets = Array.isArray(submitData.targets)
+        ? submitData.targets
+        : Array.from(submitData.targets ?? []);
+
+      submitData.targets = rawTargets
         .map((target) => {
           const actor = resolveTargetActor(target);
           if (!actor) return null;
 
           const token = resolveTargetToken(target, actor);
+          const tokenDocument = token?.document ?? token ?? null;
+
           return typeof actor.speakerData === "function"
-            ? actor.speakerData(token)
+            ? actor.speakerData(tokenDocument)
             : null;
         })
         .filter(Boolean);
     }
 
-    return data;
+    if (typeof this.createBreakdown === "function") {
+      submitData.context.breakdown = this.createBreakdown();
+    }
+
+    if (canvas?.scene) {
+      game.canvas.tokens.setTargets([]);
+    }
+
+    return submitData;
   };
 
   prototype.computeFields = async function (...args) {
